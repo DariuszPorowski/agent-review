@@ -66,6 +66,7 @@ export async function assessNpmPackageRisk(name, version, options = {}) {
     const now = new Date(options.now || Date.now());
     const sources = {
         npm: { status: "pending", error: null },
+        npm_downloads: { status: "pending", error: null },
         osv: { status: version ? "pending" : "skipped", error: version ? null : "Exact reviewed version unknown; version-specific vulnerabilities cannot be assessed." },
     };
     const indicators = {
@@ -115,6 +116,21 @@ export async function assessNpmPackageRisk(name, version, options = {}) {
                 evidence.push({ id: "npm.metadata", source: "npm", value: { latest_version: indicators.latest_version, deprecated: indicators.deprecated } });
             } catch (error) {
                 sources.npm = { status: "error", error: errorMessage(error) };
+            }
+        })(),
+        (async () => {
+            try {
+                const data = await lookup(fetchImpl,
+                    `https://api.npmjs.org/downloads/point/last-month/${encodeURIComponent(name)}`, {}, timeout);
+                if (!Number.isSafeInteger(data?.downloads) || data.downloads < 0) {
+                    throw new Error("Invalid npm downloads response.");
+                }
+                indicators.recent_downloads = data.downloads;
+                sources.npm_downloads = { status: "ok", error: null };
+                evidence.push({ id: "npm.downloads", source: "npm_downloads",
+                    value: { downloads: data.downloads, start: data.start || null, end: data.end || null } });
+            } catch (error) {
+                sources.npm_downloads = { status: "error", error: errorMessage(error) };
             }
         })(),
         (async () => {

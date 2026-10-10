@@ -9,7 +9,8 @@ test("npm assessment sends npm coordinates only and retains unknown broader risk
     const assessment = await assessNpmPackageRisk("@scope/demo", "1.2.3", {
         fetchImpl: async (url, init) => {
             requests.push({ url, body: init.body ? JSON.parse(init.body) : null });
-            return { ok: true, json: async () => url.includes("osv.dev") ? {} : {
+            return { ok: true, json: async () => url.includes("osv.dev") ? {}
+                : url.includes("/downloads/") ? { downloads: 123456, start: "2026-09-01", end: "2026-09-30" } : {
                 "dist-tags": { latest: "4.0.0" },
                 versions: { "1.2.3": { license: "MIT", description: "Demo package",
                     repository: "example/demo" } },
@@ -21,9 +22,10 @@ test("npm assessment sends npm coordinates only and retains unknown broader risk
         },
         now: "2026-10-10T00:00:00.000Z",
     });
-    assert.equal(requests.length, 2);
-    assert.equal(requests[1].body.package.ecosystem, "npm");
-    assert.equal(requests[1].body.version, "1.2.3");
+    assert.equal(requests.length, 3);
+    const osv = requests.find(({ url }) => url.includes("osv.dev"));
+    assert.equal(osv.body.package.ecosystem, "npm");
+    assert.equal(osv.body.version, "1.2.3");
     assert.ok(requests.every(({ url }) => !url.includes("pypi")));
     assert.equal(assessment.version, "1.2.3");
     assert.equal(assessment.indicators.vulnerability_count, 0);
@@ -31,6 +33,8 @@ test("npm assessment sends npm coordinates only and retains unknown broader risk
     assert.equal(assessment.indicators.repository_url, "https://github.com/example/demo");
     assert.equal(assessment.indicators.maintenance.status, "active");
     assert.equal(assessment.indicators.maintenance.releases_last_12_months, 2);
+    assert.equal(assessment.indicators.recent_downloads, 123456);
+    assert.equal(assessment.sources.npm_downloads.status, "ok");
     assert.equal(assessment.risk.level, "unknown");
     assert.match(packageEvidenceLinks("@scope/demo", "1.2.3", null, "npm").registry, /npmjs/);
 });
@@ -40,10 +44,11 @@ test("unresolved npm ranges never become latest-version vulnerability assessment
     const assessment = await assessNpmPackageRisk("demo", null, {
         fetchImpl: async (url) => {
             requests.push(url);
-            return { ok: true, json: async () => ({ "dist-tags": { latest: "4.0.0" } }) };
+            return { ok: true, json: async () => url.includes("/downloads/")
+                ? { downloads: 42 } : { "dist-tags": { latest: "4.0.0" } } };
         },
     });
-    assert.equal(requests.length, 1);
+    assert.equal(requests.length, 2);
     assert.equal(assessment.version, null);
     assert.equal(assessment.sources.osv.status, "skipped");
     assert.equal(assessment.indicators.vulnerability_count, null);
@@ -68,6 +73,7 @@ test("npm assessment honors a configured registry and preserves TLS failure deta
         fetchImpl: async (url) => {
             requests.push(url);
             if (url.includes("packages.example")) throw new TypeError("fetch failed", { cause: tls });
+            if (url.includes("/downloads/")) return { ok: true, json: async () => ({ downloads: 10 }) };
             return { ok: true, json: async () => ({ vulns: [] }) };
         },
     });

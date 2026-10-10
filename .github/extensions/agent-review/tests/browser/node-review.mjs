@@ -91,7 +91,12 @@ try {
         state.packageAssessments.set(`npm:${item.name}@${item.resolved_current}`, {
             name: item.name, version: item.resolved_current,
             risk: { level: "unknown", score: 0, reasons: ["No public services are contacted by this regression."] },
-            sources: {}, indicators: { provenance: { summary: `${item.name} registry description.` } },
+            sources: { npm_downloads: { status: "ok" } },
+            indicators: {
+                provenance: { summary: `${item.name} registry description.` },
+                recent_downloads: 123456,
+                maintenance: { status: "active", releases_last_12_months: 2 },
+            },
         });
     }
     server = await startReviewServer(state);
@@ -150,6 +155,7 @@ try {
             assert.match(await page.locator("#package-detail").textContent(), new RegExp(item.resolved_current.replaceAll(".", "\\.")));
             assert.equal(await page.locator("#package-detail .package-description").textContent(),
                 `${item.name} registry description.`);
+            assert.match(await page.locator("#package-detail").textContent(), /123,456/);
             await page.waitForFunction(() => !/Checking .* metadata/i.test(
                 document.querySelector("#package-detail")?.textContent || ""));
             const sourceLink = page.locator("#package-detail .usage-list .source-reference").first();

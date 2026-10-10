@@ -2951,7 +2951,8 @@ function renderPackagePanel() {
         }
         const statuses = el("ul", "source-status evidence-sources");
         const sourceUrls = { pypi: links.registry, npm: links.registry, nuget: links.registry,
-            proxy: links.registry, crates_io: links.registry, osv: links.vulnerabilities, osv_history: links.vulnerabilities,
+            npm_downloads: links.downloads, proxy: links.registry, crates_io: links.registry,
+            osv: links.vulnerabilities, osv_history: links.vulnerabilities,
             scorecard: links.scorecard, pypistats: links.downloads };
         for (const [name, source] of Object.entries(assessment.sources || {})) {
             const row = el("li", `source-${source.status}`);
