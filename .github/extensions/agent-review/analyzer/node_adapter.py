@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -10,7 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from language_adapters import AnalysisSnapshot
-from node_packages import package_diff, parse_packages
+from node_packages import package_diff, parse_locked_packages, parse_packages
 from review_model import ReviewModel
 
 
@@ -58,11 +59,25 @@ class NodeAdapter:
     def dependencies(self, snapshot: AnalysisSnapshot, warnings: list[str]) -> dict[str, Any]:
         baseline = parse_packages(snapshot.baseline, warnings)
         current = parse_packages(snapshot.current, warnings)
+        declared_names = {item["name"] for item in [*baseline, *current]}
+        locked_baseline = [
+            item for item in parse_locked_packages(snapshot.baseline, warnings)
+            if item["name"] not in declared_names
+        ]
+        locked_current = [
+            item for item in parse_locked_packages(snapshot.current, warnings)
+            if item["name"] not in declared_names
+        ]
+        locked_changes = package_diff(locked_baseline, locked_current)
+        changed_locked_names = {item["name"] for item in locked_changes}
+        baseline.extend(item for item in locked_baseline if item["name"] in changed_locked_names)
+        current.extend(item for item in locked_current if item["name"] in changed_locked_names)
         return {"baseline": baseline, "current": current, "changes": package_diff(baseline, current)}
 
     def _invoke(
         self, script: str, payload: dict[str, Any],
         on_wait: Callable[[float], None] | None = None,
+        environment: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         executable = shutil.which("node")
         if not executable:
@@ -72,7 +87,7 @@ class NodeAdapter:
             future = executor.submit(
                 subprocess.run, arguments,
                 input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8",
-                timeout=180, check=False,
+                timeout=180, check=False, env={**os.environ, **(environment or {})},
             )
             started = time.monotonic()
             while True:
@@ -112,16 +127,29 @@ class NodeAdapter:
             facts = self._invoke("node-compiler.mjs", {
                 "baseline": _texts(snapshot.baseline), "current": _texts(snapshot.current),
                 "use_cache": snapshot.use_cache,
+                "include_cache_stats": True,
             }, on_wait=lambda elapsed: progress(
                 f"TypeScript compiler is still resolving {source_count:,} saved source "
                 f"file{'s' if source_count != 1 else ''} · {round(elapsed):,}s elapsed",
                 66,
-            ))
+            ), environment={
+                "AGENT_REVIEW_NODE_CACHE": str(
+                    Path(os.environ.get("AGENT_REVIEW_CACHE_DIR")
+                         or Path.home() / ".copilot" / "agent-review" / "file-cache")
+                    / "node-facts"
+                ),
+            } if snapshot.use_cache else None)
             for key in ("symbols", "edges", "evidence", "warnings"):
                 getattr(model, key).extend(facts.get(key, []))
             for key, values in facts.get("aggregates", {}).items():
                 model.aggregates.setdefault(key, []).extend(values)
-            progress(f"Resolved {len(facts.get('symbols', [])):,} Node symbols", 67)
+            cache = facts.get("cache", {})
+            reuse = int(cache.get("persistent_hits", 0))
+            progress(
+                f"Resolved {len(facts.get('symbols', [])):,} Node symbols"
+                f"{f' · reused {reuse:,} parser facts from earlier reviews' if reuse else ''}",
+                67,
+            )
         except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
             model.warnings.append(f"Node compiler analysis unavailable: {error}")
             progress(model.warnings[-1], 67)

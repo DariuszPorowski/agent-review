@@ -164,7 +164,7 @@ test('snapshots remain isolated from live files and from each other', () => {
   assert(removed.every(edge => edge.evidence_ids.every(identifier => evidence.get(identifier).snapshot === 'baseline')));
 });
 
-test('cache stores bounded content facts, invalidates config and declarations, rebuilds relationships', () => {
+test('cache stores bounded content facts across config changes and rebuilds relationships', () => {
   clearFactCache();
   const current = {
     'tsconfig.json': '{"compilerOptions":{"baseUrl":".","paths":{"target":["one.ts"]}}}',
@@ -184,9 +184,9 @@ test('cache stores bounded content facts, invalidates config and declarations, r
   const changedSymbols = symbols(changed);
   assert(relation(changed, 'calls', changedSymbols.get('app.ts:run').id, changedSymbols.get('two.ts:value').id));
   assert(!relation(changed, 'calls', changedSymbols.get('app.ts:run').id, changedSymbols.get('one.ts:value').id));
-  assert.equal(factCacheStats().misses, 8);
+  assert.equal(factCacheStats().misses, 4);
   analyzeSnapshot({ current: { ...configured, 'ambient.d.ts': 'declare const x: string;' } });
-  assert.equal(factCacheStats().misses, 12);
+  assert.equal(factCacheStats().misses, 5);
   const beforeDisabled = factCacheStats();
   analyzeSnapshot({ current, use_cache: false });
   assert.equal(factCacheStats().entries, beforeDisabled.entries);
@@ -195,6 +195,33 @@ test('cache stores bounded content facts, invalidates config and declarations, r
   analyzeSnapshot({ current: many });
   assert(factCacheStats().entries <= factCacheStats().limit);
   assert(factCacheStats().bytes <= 16 * 1024 * 1024);
+});
+
+test('content-addressed parser facts persist across compiler processes', () => {
+  const script = fileURLToPath(new URL('../node-compiler.mjs', import.meta.url));
+  const cache = fileURLToPath(new URL(`.node-compiler-cache-${process.pid}/`, import.meta.url));
+  const input = JSON.stringify({ current: {
+    'src/a.ts': 'export function a(){return 1}',
+    'src/b.ts': 'import {a} from "./a.js"; export function b(){return a()}',
+  } });
+  const run = () => spawnSync(process.execPath, [script, '--cache-stats'], {
+    input,
+    encoding: 'utf8',
+    env: { ...process.env, AGENT_REVIEW_NODE_CACHE: cache },
+  });
+  try {
+    const cold = run();
+    assert.equal(cold.status, 0, cold.stderr);
+    assert.equal(JSON.parse(cold.stderr.trim()).cache.misses, 2);
+    const warm = run();
+    assert.equal(warm.status, 0, warm.stderr);
+    const stats = JSON.parse(warm.stderr.trim()).cache;
+    assert.equal(stats.hits, 2);
+    assert.equal(stats.misses, 0);
+    assert.deepEqual(JSON.parse(warm.stdout), JSON.parse(cold.stdout));
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
 });
 
 test('large snapshot graph has stable cached results within a generous regression budget', () => {

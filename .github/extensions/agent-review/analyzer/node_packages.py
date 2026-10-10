@@ -191,6 +191,63 @@ def parse_packages(
     return sorted(result, key=lambda item: (item["name"], item["source"], item["group"]))
 
 
+def parse_locked_packages(
+    files: dict[str, bytes | str], warnings: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    warnings = warnings if warnings is not None else []
+    result = []
+    for path, value in sorted(files.items()):
+        if PurePosixPath(path).name != "package-lock.json":
+            continue
+        try:
+            text = _text(value)
+            data = json.loads(text)
+            packages = data.get("packages") if isinstance(data, dict) and data.get("lockfileVersion") in (2, 3) else None
+            if not isinstance(packages, dict):
+                continue
+            spans = _json_spans(text)
+        except (UnicodeDecodeError, ValueError):
+            continue
+        by_name: dict[str, list[tuple[str, dict[str, Any], str]]] = {}
+        for install_path, entry in packages.items():
+            if not isinstance(entry, dict) or "node_modules/" not in install_path or entry.get("link"):
+                continue
+            name = install_path.rsplit("node_modules/", 1)[1]
+            version = entry.get("version")
+            match = EXACT_VERSION.fullmatch(version or "")
+            if not name or not match:
+                continue
+            by_name.setdefault(name, []).append((install_path, entry, match.group(1)))
+        for name, entries in sorted(by_name.items()):
+            versions = {entry[2] for entry in entries}
+            if len(versions) != 1:
+                warnings.append(
+                    f"{path}: transitive package {name} has multiple locked versions; "
+                    "lockfile-only version-change evidence is ambiguous."
+                )
+                continue
+            install_path, entry, version = min(entries, key=lambda item: (item[0].count("node_modules/"), len(item[0])))
+            item = {
+                "name": name,
+                "import_name": name,
+                "ecosystem": "npm",
+                "id": f"package:npm:{name}",
+                "specifier": version,
+                "source": path,
+                "group": "transitive",
+                "resolved_version": version,
+                "resolution_source": path,
+                "transitive": True,
+                "dev": bool(entry.get("dev")),
+                "optional": bool(entry.get("optional")),
+            }
+            span = spans.get(("packages", install_path))
+            if span:
+                item.update(_location(text, span))
+            result.append(item)
+    return result
+
+
 def package_diff(baseline: list[dict[str, Any]], current: list[dict[str, Any]]) -> list[dict[str, Any]]:
     before = {(item["name"], item["source"], item["group"]): item for item in baseline}
     after = {(item["name"], item["source"], item["group"]): item for item in current}

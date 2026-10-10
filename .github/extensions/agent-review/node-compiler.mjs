@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { builtinModules, createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,10 +10,13 @@ const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
 const DECLARATION = /\.d\.[cm]?ts$/i;
 const CACHE_LIMIT = 256;
 const CACHE_BYTES = 16 * 1024 * 1024;
-// Process-local parser facts only: each Python review starts a fresh CLI, with no disk persistence.
+const DISK_CACHE_LIMIT = 8192;
+const DISK_CACHE_BYTES = 128 * 1024 * 1024;
+const DISK_ENTRY_BYTES = 4 * 1024 * 1024;
 const factsCache = new Map();
 let cacheBytes = 0;
-const stats = { hits: 0, misses: 0, parses: 0 };
+const stats = { hits: 0, memory_hits: 0, persistent_hits: 0, misses: 0, parses: 0 };
+let persistentWrites = 0;
 const require = createRequire(import.meta.url);
 const compilerFingerprint = createHash('sha256')
   .update(ts.version).update(ts.sys.readFile(require.resolve('typescript')) ?? '')
@@ -30,7 +34,7 @@ const componentName = name => name.includes('/') ? name.split('/')[0] : '.';
 export function clearFactCache() {
   factsCache.clear();
   cacheBytes = 0;
-  Object.assign(stats, { hits: 0, misses: 0, parses: 0 });
+  Object.assign(stats, { hits: 0, memory_hits: 0, persistent_hits: 0, misses: 0, parses: 0 });
 }
 
 export function factCacheStats() {
@@ -227,25 +231,123 @@ function complexity(node) {
   return score;
 }
 
-function factKey(name, text, environment) {
-  return hash(`${compilerFingerprint}\0${environment}\0${name}\0${text}`);
+function factKey(name, text) {
+  return hash(`${compilerFingerprint}\0${name}\0${text}`);
 }
 
-function parseFacts(name, text, environment, useCache) {
-  const key = factKey(name, text, environment);
+function persistentCacheDirectory() {
+  return process.env.AGENT_REVIEW_NODE_CACHE ? path.resolve(process.env.AGENT_REVIEW_NODE_CACHE) : null;
+}
+
+function validPersistentFacts(value) {
+  return value && typeof value === 'object' && Array.isArray(value.symbols)
+    && typeof value.ast_hash === 'string' && Array.isArray(value.diagnostics)
+    && value.symbols.every(symbol => symbol && typeof symbol === 'object'
+      && typeof symbol.id === 'string' && typeof symbol.identity === 'string'
+      && typeof symbol.path === 'string' && symbol.range && Number.isInteger(symbol.range.start_line))
+    && value.diagnostics.every(item => Number.isInteger(item.line) && typeof item.message === 'string');
+}
+
+function readPersistentFacts(key) {
+  const directory = persistentCacheDirectory();
+  if (!directory) return null;
+  const file = path.join(directory, `${key}.json`);
+  try {
+    if (statSync(file).size > DISK_ENTRY_BYTES) return null;
+    const value = JSON.parse(readFileSync(file, 'utf8'));
+    if (!validPersistentFacts(value)) return null;
+    const now = new Date();
+    try { utimesSync(file, now, now); } catch {}
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistentFacts(key, facts) {
+  const directory = persistentCacheDirectory();
+  if (!directory) return;
+  const data = JSON.stringify(facts);
+  if (Buffer.byteLength(data) > DISK_ENTRY_BYTES) return;
+  try {
+    mkdirSync(directory, { recursive: true });
+    const file = path.join(directory, `${key}.json`);
+    try {
+      if (statSync(file).isFile()) return;
+    } catch {}
+    const temporary = path.join(directory, `.${key}.${process.pid}.${Date.now()}.tmp`);
+    writeFileSync(temporary, data, { encoding: 'utf8', flag: 'wx' });
+    try {
+      renameSync(temporary, file);
+    } catch (error) {
+      try { unlinkSync(temporary); } catch {}
+      if (error.code !== 'EEXIST') throw error;
+    }
+    persistentWrites++;
+  } catch {}
+}
+
+function prunePersistentCache() {
+  const directory = persistentCacheDirectory();
+  if (!directory || !persistentWrites) return;
+  persistentWrites = 0;
+  try {
+    const entries = readdirSync(directory)
+      .filter(name => /^[a-f0-9]{64}\.json$/.test(name))
+      .map(name => {
+        const file = path.join(directory, name);
+        const stat = statSync(file);
+        return { file, size: stat.size, time: stat.mtimeMs };
+      })
+      .sort((a, b) => a.time - b.time);
+    let bytes = entries.reduce((total, entry) => total + entry.size, 0);
+    while (entries.length > DISK_CACHE_LIMIT || bytes > DISK_CACHE_BYTES) {
+      const oldest = entries.shift();
+      try {
+        unlinkSync(oldest.file);
+        bytes -= oldest.size;
+      } catch {}
+    }
+  } catch {}
+}
+
+function parseFacts(name, text, useCache) {
+  const key = factKey(name, text);
   if (useCache && factsCache.has(key)) {
     const cached = factsCache.get(key);
     factsCache.delete(key);
     factsCache.set(key, cached);
     stats.hits++;
+    stats.memory_hits++;
     return cached;
+  }
+  if (useCache) {
+    const persistent = readPersistentFacts(key);
+    if (persistent) {
+      const cached = { ...persistent, bytes: Buffer.byteLength(text) };
+      factsCache.set(key, cached);
+      cacheBytes += cached.bytes;
+      while (factsCache.size > CACHE_LIMIT || cacheBytes > CACHE_BYTES) {
+        const oldest = factsCache.keys().next().value;
+        cacheBytes -= factsCache.get(oldest).bytes;
+        factsCache.delete(oldest);
+      }
+      stats.hits++;
+      stats.persistent_hits++;
+      return cached;
+    }
   }
   stats.misses++;
   stats.parses++;
   const source = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.getScriptKindFromFileName(name));
-  const cached = { source, bytes: Buffer.byteLength(text),
+  const cached = { bytes: Buffer.byteLength(text),
     symbols: collectSymbols(source, moduleName(relative(name))),
-    ast_hash: canonicalNode(source, source) };
+    ast_hash: canonicalNode(source, source),
+    diagnostics: source.parseDiagnostics.map(diagnostic => ({
+      line: source.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1,
+      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+    })),
+  };
   if (useCache && Buffer.byteLength(text) <= CACHE_BYTES / 4) {
     const bytes = Buffer.byteLength(text);
     factsCache.set(key, cached);
@@ -255,6 +357,11 @@ function parseFacts(name, text, environment, useCache) {
       cacheBytes -= factsCache.get(oldest).bytes;
       factsCache.delete(oldest);
     }
+    writePersistentFacts(key, {
+      symbols: cached.symbols,
+      ast_hash: cached.ast_hash,
+      diagnostics: cached.diagnostics,
+    });
   }
   return cached;
 }
@@ -349,8 +456,6 @@ function analyzeSide(input, label, useCache) {
   const virtualFS = virtualHost(files);
   const configs = configuration(files, virtualFS, warnings);
   const workspaces = workspacePackages(files, warnings);
-  const environment = hash(JSON.stringify([...files].filter(([name]) =>
-    DECLARATION.test(name) || /(?:config[^/]*|package)\.json$/.test(name))));
   const names = [...files.keys()].filter(name => SOURCE.test(name) && !name.includes('/node_modules/'));
   const defaultOptions = { allowJs: true, checkJs: false, noEmit: true,
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.NodeNext,
@@ -372,12 +477,11 @@ function analyzeSide(input, label, useCache) {
   const sources = new Map();
   // Consume surviving baseline hits before misses can evict them in snapshots larger than the LRU.
   const parseNames = useCache ? [...names].sort((a, b) =>
-    Number(factsCache.has(factKey(b, files.get(b), environment)))
-      - Number(factsCache.has(factKey(a, files.get(a), environment)))) : names;
+    Number(factsCache.has(factKey(b, files.get(b))))
+      - Number(factsCache.has(factKey(a, files.get(a))))) : names;
   for (const name of parseNames) {
-    const facts = parseFacts(name, files.get(name), environment, useCache);
-    const source = facts.source;
-    sources.set(name, source);
+    const facts = parseFacts(name, files.get(name), useCache);
+    sources.set(name, true);
     const module = moduleName(relative(name));
     const records = facts.symbols.map(record => structuredClone(record));
     symbols.push(...records);
@@ -385,9 +489,8 @@ function analyzeSide(input, label, useCache) {
       component: componentName(relative(name)), language: 'node',
       ast_hash: facts.ast_hash, source_hash: hash(files.get(name)),
       symbol_ids: records.map(record => record.id).sort() });
-    for (const diagnostic of source.parseDiagnostics) {
-      const line = source.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1;
-      warnings.push(`${relative(name)}:${line}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')}`);
+    for (const diagnostic of facts.diagnostics) {
+      warnings.push(`${relative(name)}:${diagnostic.line}: ${diagnostic.message}`);
     }
   }
   const edges = [];
@@ -650,13 +753,15 @@ export function analyzeSnapshot({ baseline = {}, current = {}, use_cache = true 
       warningSides.get(note).add(side);
     }
   }
-  return {
+  const result = {
     symbols: symbols.sort((a, b) => a.id.localeCompare(b.id)),
     edges: edges.sort((a, b) => a.id.localeCompare(b.id)),
     evidence: evidence.sort((a, b) => a.id.localeCompare(b.id)),
     aggregates: { modules, components, edges: aggregateEdges(symbols, modules, components, edges) },
     warnings: [...warningSides].map(([note, sides]) => `[${sides.size === 2 ? "Base/current" : [...sides][0]}] ${note}`).sort(),
   };
+  prunePersistentCache();
+  return result;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -670,7 +775,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (!text) throw new Error('Expected snapshot JSON on stdin or --input JSON.');
     const request = JSON.parse(text);
     if (process.argv.includes('--no-cache')) request.use_cache = false;
-    process.stdout.write(JSON.stringify(analyzeSnapshot(request)));
+    const report = analyzeSnapshot(request);
+    if (request.include_cache_stats) report.cache = factCacheStats();
+    process.stdout.write(JSON.stringify(report));
     if (process.argv.includes('--cache-stats')) process.stderr.write(`${JSON.stringify({ cache: factCacheStats() })}\n`);
   } catch (error) {
     process.stderr.write(`Node compiler analysis failed: ${error.message}\n`);

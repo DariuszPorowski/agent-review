@@ -11,7 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parents[1] / "analyzer"))
 from language_adapters import AnalysisSnapshot
 from node_adapter import NODE_ADAPTER, NodeAdapter
-from node_packages import package_diff, parse_packages
+from node_packages import package_diff, parse_locked_packages, parse_packages
 from review_model import ReviewModel
 
 
@@ -95,6 +95,40 @@ class NodePackageTests(unittest.TestCase):
         change = package_diff(parse_packages(files("1.0.0")), parse_packages(files("1.1.0")))[0]
         self.assertEqual(change["kind"], "version_changed")
         self.assertEqual(change["resolved_after"], "1.1.0")
+
+    def test_transitive_lock_only_changes_are_first_class_package_changes(self):
+        def files(axios, source_map):
+            return {
+                "package.json": encode({"dependencies": {"axios": "^1"}}),
+                "package-lock.json": encode({"lockfileVersion": 3, "packages": {
+                    "": {"dependencies": {"axios": "^1"}},
+                    "node_modules/axios": {"version": axios},
+                    "node_modules/source-map-js": {"version": source_map, "dev": True},
+                }}),
+            }
+        adapter = NodeAdapter()
+        dependencies = adapter.dependencies(snapshot(
+            baseline=files("1.18.1", "1.2.1"),
+            current=files("1.20.0", "1.2.2"),
+        ), [])
+        self.assertEqual({item["name"] for item in dependencies["changes"]}, {"axios", "source-map-js"})
+        transitive = next(item for item in dependencies["current"] if item["name"] == "source-map-js")
+        self.assertEqual(transitive["group"], "transitive")
+        self.assertEqual(transitive["resolved_version"], "1.2.2")
+        self.assertTrue(transitive["transitive"])
+        self.assertEqual(transitive["source"], "package-lock.json")
+        self.assertGreater(transitive["line"], 0)
+
+    def test_ambiguous_transitive_locked_versions_are_not_misreported(self):
+        warnings = []
+        packages = parse_locked_packages({
+            "package-lock.json": encode({"lockfileVersion": 3, "packages": {
+                "node_modules/demo": {"version": "1.0.0"},
+                "node_modules/parent/node_modules/demo": {"version": "2.0.0"},
+            }}),
+        }, warnings)
+        self.assertEqual(packages, [])
+        self.assertTrue(any("multiple locked versions" in warning for warning in warnings))
 
     def test_workspace_and_local_declarations_cannot_be_mistaken_for_registry_packages(self):
         files = {
@@ -219,6 +253,7 @@ class NodeAdapterTests(unittest.TestCase):
         script, payload = invoke.call_args.args
         self.assertEqual(script, "node-compiler.mjs")
         self.assertIs(payload["use_cache"], False)
+        self.assertIs(payload["include_cache_stats"], True)
 
     def test_coverage_delegate_receives_historical_snapshot_text_and_repository(self):
         adapter = NodeAdapter()
