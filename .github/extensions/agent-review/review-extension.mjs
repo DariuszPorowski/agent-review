@@ -15,6 +15,7 @@ import { loadReviewConfig, resolveRepoRoot, ReviewState } from "./review-state.m
 import { preferredPort, readCanvasMarkers, writeCanvasMarker } from "./canvas-persistence.mjs";
 import { startReviewServer } from "./server.mjs";
 import { ReviewLifecycle } from "./review-lifecycle.mjs";
+import { pruneStaleArtifacts } from "./storage-cleanup.mjs";
 
 const instances = new Map();
 const pendingInstances = new Map();
@@ -196,6 +197,8 @@ async function buildInstance(instanceId, input, serverOptions) {
                 if (state.disposed || state.cancelled) return;
                 state.repoRoot = repoRoot;
                 const config = await loadReviewConfig(repoRoot);
+                await pruneStaleArtifacts(repoRoot).catch((error) =>
+                    console.error("[agent-review] Unable to prune stale temporary artifacts:", error.message));
                 state.baseRef = input.baseRef
                     || config.base_ref
                     || process.env.COPILOT_DEFAULT_BRANCH

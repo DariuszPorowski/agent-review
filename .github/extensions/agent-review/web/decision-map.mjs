@@ -108,7 +108,7 @@ export function pathEvidence(item, entry, run) {
     const first = evidence.tests?.[0];
     let result;
     if (evidence.level === "asserted" && first) {
-        const ambiguous = first.ambiguous ? ` — the same check matches ${first.ambiguous} paths` : "";
+        const ambiguous = first.ambiguous ? ` — the same check matches ${countLabel(first.ambiguous, "path")}` : "";
         result = { level: "asserted", tone: "inferred", text: `Asserted (inferred): \`${testName(first.id)}\` checks \`${first.assertion?.text || first.match}\`${ambiguous}` };
     } else if (evidence.level === "exercised" && first) {
         result = { level: "exercised", tone: "inferred", text: `Called by \`${testName(first.id)}\`; this outcome is not asserted (inferred)` };
@@ -121,7 +121,8 @@ export function pathEvidence(item, entry, run) {
     }
     const ran = current ? run.ran?.[item.id] ?? (run.ran ? 0 : run.planned) : 0;
     if (Array.isArray(executed) && ran > 0) {
-        result = { level: "not-executed", tone: "untested", text: `Not executed by the ${ran} linked test${ran === 1 ? "" : "s"} that ran · ${result.text}` };
+        result = { level: "not-executed", tone: "untested",
+            text: `Not executed by the ${countLabel(ran, "linked test")} that ran · ${result.text}` };
     } else if (current && executed === null && ran > 0) {
         result = { ...result, text: `${result.text} · the run cannot confirm this path because its condition shares the proof line` };
     }
@@ -230,3 +231,4 @@ export function decisionPromptContext(map, callables = map?.callables || [], { m
         omitted_callables: omitted,
     };
 }
+import { countLabel } from "./count-format.mjs";

@@ -8,6 +8,7 @@ import { isReviewSymbol, isTestPath, languageForPath } from "/languages.mjs";
 import { ConnectionFeedback } from "/connection-feedback.mjs";
 import { describeAnalysisWarning } from "/analysis-limitations.mjs";
 import { buildReviewPlan } from "/review-plan.mjs";
+import { countLabel, plural } from "/count-format.mjs";
 import {
     REVIEW_DISPOSITIONS, isReviewComplete, nextReviewItem, parseReviewLedger, reviewProgress,
     reviewSnapshotKey, serializeReviewLedger,
@@ -234,7 +235,7 @@ function renderSummary(model) {
     elements.summary.replaceChildren(
         deltaMetric("Files", summary.files_added, summary.files_removed, fileDetail, "files", summary.files_modified || 0),
         deltaMetric("Lines", summary.lines_added, summary.lines_removed,
-            `source ${split.source.toLocaleString()} · tests ${split.tests.toLocaleString()} lines changed`, "lines"),
+            `source ${countLabel(split.source, "line")} · tests ${countLabel(split.tests, "line")} changed`, "lines"),
         decisionMetric(state.payload?.decision_map),
         deltaMetric("Architecture edges", summary.new_arch_edges, summary.arch_edges_removed, topEdge
             ? `Largest: ${moduleName(topEdge.source)} → ${moduleName(topEdge.target)}`
@@ -255,7 +256,8 @@ function renderSummary(model) {
     if (!model.coverage?.available) qualityIssues.push(historical
         ? "Coverage is unavailable for this historical snapshot. Working-tree coverage reports are not applied to commit or PR reviews."
         : `No usable coverage report for this worktree snapshot. ${coveragePrerequisite}, then Reanalyze.`);
-    if (warnings.length) qualityIssues.push(`${warnings.length} static-analysis note${warnings.length === 1 ? "" : "s"} describe what could not be verified.`);
+    if (warnings.length) qualityIssues.push(
+        `${countLabel(warnings.length, "static-analysis note")} ${plural(warnings.length, "describes", "describe")} what could not be verified.`);
     if (qualityIssues.length) {
         const quality = el("button", "quality-warning");
         quality.type = "button";
@@ -487,7 +489,7 @@ function collapseSizeFindings(items, model) {
     const shown = sizes.slice(0, 4).map(label).join(" · ");
     const group = {
         id: "group:size",
-        title: `Large changes · ${sizes.length} areas`,
+        title: `Large changes · ${countLabel(sizes.length, "area")}`,
         body: `${shown}${sizes.length > 4 ? ` · +${sizes.length - 4} more` : ""}`,
         impact_score: sizes[0].impact_score,
         severity: sizes[0].severity,
@@ -537,7 +539,9 @@ function renderScopeFindings(model, parent, findings) {
     const section = el("section", "scope-findings");
     section.setAttribute("aria-label", "Findings in this scope");
     const closedCount = scoped.filter((item) => isFindingClosed(item, state.closedFindingKeys)).length;
-    section.append(el("h3", "", `${scoped.length - closedCount} active${closedCount ? ` · ${closedCount} closed` : ""} review findings in ${parent.name}`));
+    const activeCount = scoped.length - closedCount;
+    section.append(el("h3", "", `${countLabel(activeCount, "active review finding")}${
+        closedCount ? ` · ${countLabel(closedCount, "closed review finding")}` : ""} in ${parent.name}`));
     const nodes = new Map(model.nodes.map((node) => [node.id, node]));
     for (const finding of scoped) {
         const target = nodes.get(finding.node_id);
@@ -664,7 +668,8 @@ function selectAggregateEdge(edge, model) {
             ...edge,
             kind: "edge",
             name: `${source} → ${target}`,
-            reason: `${edge.added_count || 0} added and ${edge.removed_count || 0} removed ${edge.kind} relationships.`,
+            reason: `${edge.kind}: ${countLabel(edge.added_count || 0, "relationship")} added and ${
+                countLabel(edge.removed_count || 0, "relationship")} removed.`,
         });
         return;
     }
@@ -675,7 +680,8 @@ function selectAggregateEdge(edge, model) {
         added_count: edge.added_count,
         removed_count: edge.removed_count,
         underlying_edge_ids: edge.underlying_edge_ids,
-        reason: `${edge.added_count || 0} added and ${edge.removed_count || 0} removed ${edge.kind} relationships. Showing representative source evidence.`,
+        reason: `${edge.kind}: ${countLabel(edge.added_count || 0, "relationship")} added and ${
+            countLabel(edge.removed_count || 0, "relationship")} removed. Showing representative source evidence.`,
     });
 }
 function field(label, value) {
@@ -711,7 +717,7 @@ function renderChangeBrief() {
         });
         message.append(el("summary", "", intent.kind === "pr" ? "Full description and commits" : "Full commit message"));
         const meta = intent.kind === "pr"
-            ? [`#${intent.number}`, intent.author, `${intent.commits?.length || 0} commit${intent.commits?.length === 1 ? "" : "s"}`]
+            ? [`#${intent.number}`, intent.author, countLabel(intent.commits?.length || 0, "commit")]
             : [intent.sha?.slice(0, 7), intent.author, intent.date ? new Date(intent.date).toLocaleString() : null];
         message.append(el("p", "commit-meta", meta.filter(Boolean).join(" · ")));
         if (intent.body) message.append(el("pre", "commit-body", intent.body));
@@ -857,12 +863,12 @@ function renderRuleCheck() {
         const open = el("button", "link-button rule-source-link", source.path);
         open.type = "button";
         open.title = ranges.length
-            ? `Open ${source.path} with the ${ranges.length} cited section${ranges.length === 1 ? "" : "s"} highlighted`
+            ? `Open ${source.path} with ${countLabel(ranges.length, "cited section")} highlighted`
             : `Open ${source.path}`;
         open.addEventListener("click", () => openRuleFile(source.path, ranges));
-        sources.append(open, document.createTextNode(` applies to ${source.applicable_count} changed file${
-            source.applicable_count === 1 ? "" : "s"}${source.changed_in_review ? " and was edited in this change" : ""}${source.truncated ? " (truncated)" : ""}${
-            ranges.length ? ` · ${ranges.length} cited section${ranges.length === 1 ? "" : "s"}` : ""}`));
+        sources.append(open, document.createTextNode(` applies to ${countLabel(source.applicable_count, "changed file")}${
+            source.changed_in_review ? " and was edited in this change" : ""}${source.truncated ? " (truncated)" : ""}${
+            ranges.length ? ` · ${countLabel(ranges.length, "cited section")}` : ""}`));
     });
     sources.append(document.createTextNode(". Copilot checks the change against these rules; verify its claims."));
     details.append(sources);
@@ -1165,7 +1171,7 @@ async function openSessionHistory(attribution) {
         elements.session_history_title.textContent = history.summary || "Session transcript";
         elements.session_history_meta.textContent = [
             history.working_directory,
-            `${history.timeline.length} visible events`,
+            countLabel(history.timeline.length, "visible event"),
         ].filter(Boolean).join(" · ");
         const fragment = document.createDocumentFragment();
         let highlighted = null;
@@ -1177,8 +1183,8 @@ async function openSessionHistory(attribution) {
             const edits = tools.filter((tool) => tool.operation === "write").length;
             const group = el("details", "history-tools");
             group.append(el("summary", "", [
-                `${tools.length} tool call${tools.length === 1 ? "" : "s"}`,
-                edits ? `${edits} edit${edits === 1 ? "" : "s"}` : null,
+                countLabel(tools.length, "tool call"),
+                edits ? countLabel(edits, "edit") : null,
                 [...counts].map(([name, count]) => `${name}×${count}`).join(", "),
             ].filter(Boolean).join(" · ")));
             const list = el("ul", "");
@@ -1564,8 +1570,8 @@ function renderPlainSource(text, side) {
     const gaps = side === "base" ? segments.addedBefore : segments.removedBefore;
     const gapRow = (count) => {
         const row = codeRow("gap", "", "", side === "base" ? "+" : "−",
-            side === "base" ? `${count} line${count === 1 ? "" : "s"} added here in Current`
-                : `${count} line${count === 1 ? "" : "s"} removed here (see Base)`);
+            side === "base" ? `${countLabel(count, "line")} added here in Current`
+                : `${countLabel(count, "line")} removed here (see Base)`);
         row.classList.add(side === "base" ? "gap-added" : "gap-removed");
         return row;
     };
@@ -1608,7 +1614,7 @@ function diffGaps(source) {
 function gapToggleRow(gap, expanded) {
     const count = gap.newTo - gap.newFrom + 1;
     const row = codeRow("gap-toggle", "", "", expanded ? "▴" : "▾",
-        `${expanded ? "Hide" : "Show"} ${count.toLocaleString()} unchanged line${count === 1 ? "" : "s"} (${gap.newFrom}–${gap.newTo})`);
+        `${expanded ? "Hide" : "Show"} ${countLabel(count, "unchanged line")} (${gap.newFrom}–${gap.newTo})`);
     row.dataset.gap = gap.key;
     row.tabIndex = 0;
     row.setAttribute("role", "button");
@@ -1854,8 +1860,9 @@ function renderReviewPlan(model, findings) {
     );
     if (progress.total) {
         introCopy.append(el("p", "review-progress",
-            `${progress.completed} of ${progress.total} reviewed${progress.followUp ? ` · ${progress.followUp} needs follow-up` : ""}${
-                allPlan.omitted ? ` · ${allPlan.omitted} additional qualifying changes omitted` : ""}`));
+            `${progress.completed.toLocaleString()} of ${countLabel(progress.total, "item")} reviewed${
+                progress.followUp ? ` · ${countLabel(progress.followUp, "item")} ${plural(progress.followUp, "needs", "need")} follow-up` : ""}${
+                allPlan.omitted ? ` · ${countLabel(allPlan.omitted, "additional qualifying change")} omitted` : ""}`));
     }
     intro.append(introCopy);
     if (allPlan.length) {
@@ -1991,7 +1998,7 @@ function renderCollection(model) {
             row.addEventListener("click", () => selectFile(item));
         } else if (item.source && item.target) {
             title = `${nodeById.get(item.source)?.name || item.source} → ${nodeById.get(item.target)?.name || item.target}`;
-            subtitle = `${item.type} · ${item.count || 1} relationship${item.count === 1 ? "" : "s"} · ${item.confidence}`;
+            subtitle = `${item.type} · ${countLabel(item.count || 1, "relationship")} · ${item.confidence}`;
             row.addEventListener("click", () => selectItem(item));
         } else if (item.id?.startsWith("package:")) {
             title = item.name;
@@ -2043,9 +2050,9 @@ function decisionMetric(map) {
     else if (!totals.callables) detail = "No code path changes";
     else {
         const untested = map.verification ? evidenceCounts(map, state.payload?.test_run).untested : null;
-        detail = [`${totals.callables} callable${totals.callables === 1 ? "" : "s"}`,
+        detail = [countLabel(totals.callables, "callable"),
             untested !== null ? `${untested} without test evidence`
-                : totals.gates ? `${totals.gates} conditional gate${totals.gates === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
+                : totals.gates ? countLabel(totals.gates, "conditional gate") : null].filter(Boolean).join(" · ");
     }
     if (map?.status !== "complete") {
         const card = metric("Code paths", map?.status === "loading" ? "…" : "–", detail, "decisions");
@@ -2184,7 +2191,7 @@ function renderDecisionView(model) {
         notes.addEventListener("toggle", () => {
             if (notes.isConnected) state.codePathNotesOpenKey = notes.open ? key : null;
         });
-        notes.append(el("summary", "", `${map.warnings.length} analysis notes about these code paths`),
+        notes.append(el("summary", "", `${countLabel(map.warnings.length, "analysis note")} about these code paths`),
             el("p", "analysis-warning-intro", "These explain incomplete static analysis. They are not confirmed runtime failures."),
             analysisWarningList(map.warnings));
         view.append(notes);
@@ -2220,7 +2227,8 @@ function renderDecisionView(model) {
         group.append(header);
         const rows = el("div", "decision-rows");
         rows.append(...visibleEntries(item).map((entry) => decisionRow(item, entry, openDecision)));
-        if (item.omitted_entries) rows.append(el("p", "muted decision-omitted", `${item.omitted_entries} more code path changes not shown.`));
+        if (item.omitted_entries) rows.append(el("p", "muted decision-omitted",
+            `${countLabel(item.omitted_entries, "more code path change")} not shown.`));
         if (item.truncated) rows.append(el("p", "muted decision-omitted", "Very large callable: only the first code paths were extracted."));
         group.append(rows);
         view.append(group);
@@ -2230,8 +2238,8 @@ function renderDecisionView(model) {
         const none = quiet.length - same;
         const details = el("details", "decision-unchanged");
         details.append(el("summary", "", [
-            same ? `${same} modified callable${same === 1 ? " keeps" : "s keep"} the same code paths` : null,
-            none ? `${none} added or removed callable${none === 1 ? " has" : "s have"} no exits, handlers, or wiring` : null,
+            same ? `${countLabel(same, "modified callable")} ${plural(same, "keeps", "keep")} the same code paths` : null,
+            none ? `${countLabel(none, "added or removed callable")} ${plural(none, "has", "have")} no exits, handlers, or wiring` : null,
         ].filter(Boolean).join(" · ")));
         const list = el("div", "decision-unchanged-list");
         for (const item of quiet) {
@@ -2277,7 +2285,7 @@ function renderVerificationBar(map, { compact = false, callables = null } = {}) 
             counts.untested ? `${counts.untested} untested` : null,
             counts.inferred ? `${counts.inferred} inferred` : null,
             counts.confirmed ? `${counts.confirmed} confirmed` : null,
-        ].filter(Boolean).join(" · ") || `${total} paths`));
+        ].filter(Boolean).join(" · ") || countLabel(total, "path")));
     } else {
         const filters = el("div", "verification-filters");
         filters.setAttribute("role", "group");
@@ -2304,7 +2312,7 @@ function renderVerificationBar(map, { compact = false, callables = null } = {}) 
     const button = el("button", "verification-run-button", run?.status === "running" ? "Running…" : "Run linked tests");
     button.type = "button";
     button.disabled = run?.status === "running" || !plan?.available;
-    button.title = plan?.available ? `Runs ${plan.tests.length} linked tests${["csharp", "rust"].includes(plan.adapter_id) ? " with test outcomes (no per-test path tracing)" : " with line tracing"}: ${plan.command}` : plan?.reason || "Checking linked tests…";
+    button.title = plan?.available ? `Runs ${countLabel(plan.tests.length, "linked test")}${["csharp", "rust"].includes(plan.adapter_id) ? " with test outcomes (no per-test path tracing)" : " with line tracing"}: ${plan.command}` : plan?.reason || "Checking linked tests…";
     button.addEventListener("click", async () => {
         button.disabled = true;
         try {
@@ -2320,10 +2328,11 @@ function renderVerificationBar(map, { compact = false, callables = null } = {}) 
         cancel.type = "button";
         cancel.addEventListener("click", () => api("/api/test-run/cancel", { method: "POST", body: "{}" }).catch(showError));
         runner.append(cancel);
-        status.textContent = `Running ${run.planned} linked tests in ${run.location || "the worktree"} with ${run.python}…`;
+        status.textContent = `Running ${countLabel(run.planned, "linked test")} in ${run.location || "the worktree"} with ${run.python}…`;
         status.classList.add("is-running");
     } else if (run?.status === "complete") {
-        const parts = ["passed", "failed", "error", "skipped"].filter((key) => run.counts?.[key]).map((key) => `${run.counts[key]} ${key}`);
+        const parts = ["passed", "failed", "error", "skipped"].filter((key) => run.counts?.[key])
+            .map((key) => key === "error" ? countLabel(run.counts[key], "error") : `${run.counts[key]} ${key}`);
         status.textContent = `${parts.join(" · ") || "No tests ran"} · ${run.path_evidence_limitation || "Confirmed paths use per-test line traces."}${run.stale ? " Stale: the worktree changed after this run." : ""}`;
         status.classList.toggle("is-stale", Boolean(run.stale));
         status.classList.toggle("has-failures", Boolean(run.counts?.failed || run.counts?.error));
@@ -2334,7 +2343,7 @@ function renderVerificationBar(map, { compact = false, callables = null } = {}) 
         status.textContent = "Test run cancelled.";
     } else {
         status.textContent = plan?.available
-            ? `Runs ${plan.tests.length} linked test${plan.tests.length === 1 ? "" : "s"} in ${plan.location} with ${plan.python} (${plan.python_source}). ${plan.prerequisites || "Executes repository code."}`
+            ? `Runs ${countLabel(plan.tests.length, "linked test")} in ${plan.location} with ${plan.python} (${plan.python_source}). ${plan.prerequisites || "Executes repository code."}`
             : plan?.reason || "Checking linked tests…";
     }
     runner.append(status);
@@ -2359,7 +2368,8 @@ function renderLinkedTests(map) {
     section.open = state.linkedTestsOpen !== false;
     section.addEventListener("toggle", () => { if (section.isConnected) state.linkedTestsOpen = section.open; });
     const tests = map.verification.tests;
-    section.append(el("summary", "", `Linked tests · ${tests.length}${map.verification.omitted_tests ? ` of ${tests.length + map.verification.omitted_tests}` : ""}`));
+    section.append(el("summary", "", `${countLabel(tests.length, "Linked test")}${
+        map.verification.omitted_tests ? ` shown of ${(tests.length + map.verification.omitted_tests).toLocaleString()}` : ""}`));
     const list = el("div", "linked-test-list");
     for (const test of tests) {
         const row = el("button", "linked-test");
@@ -2492,7 +2502,8 @@ function renderSourceDecisions() {
         }
         const rows = el("div", "decision-rows");
         rows.append(...item.entries.map((entry) => decisionRow(item, entry, (callable, value) => openDecision(callable, value, { select: false }))));
-        if (item.omitted_entries) rows.append(el("p", "muted decision-omitted", `${item.omitted_entries} more in the Code path changes view.`));
+        if (item.omitted_entries) rows.append(el("p", "muted decision-omitted",
+            `${countLabel(item.omitted_entries, "more code path change")} in the Code path changes view.`));
         panel.append(rows);
     }
 }
@@ -2606,7 +2617,7 @@ function renderPackageView(model) {
     }
     const view = el("div", "package-view");
     const list = el("div", "package-list");
-    list.append(el("p", "package-list-heading", `${changes.length} package change${changes.length === 1 ? "" : "s"}`));
+    list.append(el("p", "package-list-heading", countLabel(changes.length, "package change")));
     for (const item of changes) {
         const row = el("button", `package-row${state.selected?.id === item.id ? " is-selected" : ""}`);
         row.type = "button";
@@ -2620,8 +2631,8 @@ function renderPackageView(model) {
             el("small", "", `${item.ecosystem === "nuget" ? "NuGet · "
                 : item.ecosystem === "gomod" ? "Go module · "
                     : item.ecosystem === "cargo" ? "Cargo · " : ""}${packageVersionText(item)}${
-                item.change === "removed" ? "" : usage ? ` · used in ${usage} file${usage === 1 ? "" : "s"}`
-                    : lockedParents.length ? ` · required by ${lockedParents.length} locked package${lockedParents.length === 1 ? "" : "s"}`
+                item.change === "removed" ? "" : usage ? ` · used in ${countLabel(usage, "file")}`
+                    : lockedParents.length ? ` · required by ${countLabel(lockedParents.length, "locked package")}`
                         : item.ecosystem === "nuget" ? " · usage unresolved" : " · no usages found"}`),
         );
         row.addEventListener("click", () => selectPackage(item));
@@ -2850,7 +2861,7 @@ function renderPackagePanel() {
             }
             parentList.append(row);
         }
-        sections.push(packageSection(`Locked dependency chain (${lockedParents.length})`, parentList));
+        sections.push(packageSection(`${plural(lockedParents.length, "Locked dependency parent")} (${lockedParents.length.toLocaleString()})`, parentList));
     }
     const usageList = el("ul", "usage-list");
     for (const location of usage) {
@@ -2860,7 +2871,7 @@ function renderPackagePanel() {
         usageList.append(row);
     }
     sections.push(packageSection(
-        `Static usage locations (${usage.length})`,
+        `${plural(usage.length, "Static usage location")} (${usage.length.toLocaleString()})`,
         usage.length ? usageList : el("p", "flash flash-attention", item.ecosystem === "nuget"
             ? "NuGet-to-assembly usage is unresolved. Namespace spelling does not prove package usage. Review the saved manifest and implementation."
             : lockedParents.length
@@ -2885,13 +2896,13 @@ function renderPackagePanel() {
             statTile("OpenSSF Scorecard", score != null ? `${score}/10` : null, score != null ? null : "No scorecard published",
                 score == null ? "" : score >= 7 ? "success" : score >= 4 ? "attention" : "danger", links.scorecard),
             statTile("Maintenance", maintenance.status ? maintenance.status : null,
-                `${maintenance.releases_last_12_months ?? 0} releases in 12 months${maintenance.latest_release_date ? ` · latest ${formatDate(maintenance.latest_release_date)}` : ""}`,
+                `${countLabel(maintenance.releases_last_12_months ?? 0, "release")} in 12 months${maintenance.latest_release_date ? ` · latest ${formatDate(maintenance.latest_release_date)}` : ""}`,
                 maintenance.status === "active" ? "success" : maintenance.status === "stale" ? "attention" : maintenance.status === "dormant" ? "danger" : "", links.maintenance),
             statTile("Downloads (last month)", formatCount(indicators.recent_downloads),
                 indicators.recent_downloads == null ? assessment.sources?.pypistats?.error || "Download data unavailable." : "Across all package versions.",
                 "", links.downloads),
             statTile("Reviewed version", assessment.version,
-                `${assessment.version ? indicators.release_age_days != null ? `${indicators.release_age_days} days old` : "age unknown"
+                `${assessment.version ? indicators.release_age_days != null ? `${countLabel(indicators.release_age_days, "day")} old` : "age unknown"
                     : "Declared as a range; no exact version in this snapshot."}${indicators.latest_version ? ` · latest ${indicators.latest_version}` : ""}${indicators.yanked ? " · YANKED" : ""}`,
                 indicators.yanked ? "danger" : "", links.release),
         );
@@ -3199,7 +3210,7 @@ function render() {
     const active = groupedObservations.filter((item) => !isFindingClosed(item, state.closedFindingKeys));
     const closed = groupedObservations.filter((item) => isFindingClosed(item, state.closedFindingKeys));
     elements.attention_count.textContent = String(active.length);
-    elements.attention_count.title = `${active.length} active · ${closed.length} closed findings`;
+    elements.attention_count.title = `${countLabel(active.length, "active finding")} · ${countLabel(closed.length, "closed finding")}`;
     renderCards(elements.attention, [
         ...collapseSizeFindings(active, model),
         ...collapseSizeFindings(closed, model),

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import test from "node:test";
 import {
     preferredPort,
     readCanvasMarkers,
+    markerFile,
     removeCanvasMarker,
     writeCanvasMarker,
 } from "../canvas-persistence.mjs";
@@ -19,6 +20,23 @@ const fakeState = () => ({
     snapshot: () => ({ model: null, loading: false }),
     refresh: async () => {},
     startWorktreeMonitoring: () => () => {},
+});
+
+test("reading one session prunes stale markers from every session", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "agent-review-"));
+    try {
+        await writeCanvasMarker({ sessionId: "current", instanceId: "canvas", port: 41234, input: {} }, directory);
+        await writeCanvasMarker({ sessionId: "other", instanceId: "stale", port: 41235, input: {} }, directory);
+        const stalePath = markerFile("other", "stale", directory);
+        const stale = JSON.parse(await readFile(stalePath, "utf8"));
+        stale.updatedAt = "2020-01-01T00:00:00.000Z";
+        await writeFile(stalePath, JSON.stringify(stale));
+
+        assert.deepEqual((await readCanvasMarkers("current", directory)).map((marker) => marker.port), [41234]);
+        await assert.rejects(readFile(stalePath, "utf8"), { code: "ENOENT" });
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
 });
 
 test("preferred port is stable per repository and inside the private range", () => {

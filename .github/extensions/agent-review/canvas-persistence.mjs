@@ -50,10 +50,13 @@ export async function readCanvasMarkers(sessionId, directory = markerDirectory()
         const path = join(directory, name);
         try {
             const marker = JSON.parse(await readFile(path, "utf8"));
-            if (marker.sessionId !== sessionId || path !== markerFile(marker.sessionId, marker.instanceId, directory)) continue;
-            if (Date.now() - Date.parse(marker.updatedAt) > MAX_MARKER_AGE_MS) {
+            const updated = Date.parse(marker.updatedAt);
+            if (!Number.isFinite(updated) || Date.now() - updated > MAX_MARKER_AGE_MS) {
                 await rm(path, { force: true });
-            } else {
+                continue;
+            }
+            if (marker.sessionId === sessionId
+                && path === markerFile(marker.sessionId, marker.instanceId, directory)) {
                 markers.push(marker);
             }
         } catch (error) {

@@ -165,7 +165,7 @@ export function renderGraph(container, nodes, edges, onSelect) {
             "marker-end": "url(#arrow)",
             tabindex: "0",
         });
-        const description = `${edge.type}: ${edge.count || 1} relationship${edge.count === 1 ? "" : "s"}`;
+        const description = `${edge.type}: ${countLabel(edge.count || 1, "relationship")}`;
         const title = svg("title");
         title.textContent = description;
         path.append(title);
@@ -193,10 +193,11 @@ export function renderGraph(container, nodes, edges, onSelect) {
             transform: `translate(${point.x} ${point.y})`,
             tabindex: "0",
             role: "button",
-            "aria-label": `${displayName(node)}, ${metricText(node)}, ${node._attention_count || 0} attention findings`,
+            "aria-label": `${displayName(node)}, ${metricText(node)}, ${countLabel(node._attention_count || 0, "attention finding")}`,
         });
         const title = svg("title");
-        title.textContent = `${displayName(node)}\n${metricText(node)}${node._attention_count ? `\n${node._attention_count} attention findings · highest impact ${node._attention_score}` : ""}`;
+        title.textContent = `${displayName(node)}\n${metricText(node)}${node._attention_count
+            ? `\n${countLabel(node._attention_count, "attention finding")} · highest impact ${node._attention_score}` : ""}`;
         group.append(title, svg("rect", { x: -96, y: -52, width: 192, height: 104, rx: 6 }));
         const kind = svg("text", { x: -80, y: -28, class: "node-kind" });
         kind.textContent = (node.kind || "item").toUpperCase();
@@ -335,3 +336,4 @@ export function renderGraph(container, nodes, edges, onSelect) {
         if (autoFit) fit();
     });
 }
+import { countLabel } from "./count-format.mjs";

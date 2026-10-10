@@ -432,7 +432,10 @@ Returning to a target reuses its results while the provider remains running.
   AI claims and package indicators require human verification.
 - Repository checks are saved in `.agent-review/prompts.json`; global checks and
   approvals in `~/.copilot/agent-review/`. Canvas recovery records live in
-  `~/.copilot/agent-review/canvases/` (`AGENT_REVIEW_STATE_DIR` overrides this).
+  `~/.copilot/agent-review/canvases/` (`AGENT_REVIEW_STATE_DIR` overrides this)
+  and expire after seven days. On startup, Agent Review removes only its own
+  snapshot/test temporary directories older than 24 hours, including stale
+  repo-local `.agent-review-node-tests-*` directories left by hard termination.
 - Unchanged Python scans are reused across worktree, commit, and PR reviews
   (including linked worktrees). Content, file path, repository identity, Python,
   and analyzer versions key the cache; snapshot-wide relationships, findings,

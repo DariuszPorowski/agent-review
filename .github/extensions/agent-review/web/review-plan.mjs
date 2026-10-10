@@ -1,4 +1,5 @@
 import { pathEvidence } from "./decision-map.mjs";
+import { countLabel } from "./count-format.mjs";
 
 const MIN_FINDING_SCORE = 65;
 const MAX_REVIEW_ITEMS = 15;
@@ -57,10 +58,10 @@ function planReasons(node, evidence, findings) {
     const reasons = [];
     const callers = nodeCallers(node);
     const churn = nodeChurn(node);
-    if (evidence.untested) reasons.push(`${evidence.untested} untested path${evidence.untested === 1 ? "" : "s"}`);
-    if (evidence.inferred) reasons.push(`${evidence.inferred} inferred path${evidence.inferred === 1 ? "" : "s"}`);
-    if (callers) reasons.push(`${callers} caller${callers === 1 ? "" : "s"}`);
-    if (churn) reasons.push(`${churn} changed line${churn === 1 ? "" : "s"}`);
+    if (evidence.untested) reasons.push(countLabel(evidence.untested, "untested path"));
+    if (evidence.inferred) reasons.push(countLabel(evidence.inferred, "inferred path"));
+    if (callers) reasons.push(countLabel(callers, "caller"));
+    if (churn) reasons.push(countLabel(churn, "changed line"));
     for (const finding of findings) {
         if (finding.title && !reasons.includes(finding.title)) reasons.push(finding.title);
     }
@@ -163,7 +164,7 @@ export function buildReviewPlan(model, decisionMap, testRun, findings = []) {
             score,
             reasons: [
                 `${item.change} dependency`,
-                usageCount ? `${usageCount} usage location${usageCount === 1 ? "" : "s"}` : "no resolved usage",
+                usageCount ? countLabel(usageCount, "usage location") : "no resolved usage",
             ],
             evidence: { confirmed: 0, inferred: 0, untested: 0, entries: [] },
             finding: finding || null,

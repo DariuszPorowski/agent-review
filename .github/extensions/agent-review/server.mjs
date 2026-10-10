@@ -17,6 +17,7 @@ const staticFiles = new Map([
     ["/source-references.mjs", "source-references.mjs"],
     ["/diff-context.mjs", "diff-context.mjs"],
     ["/decision-map.mjs", "decision-map.mjs"],
+    ["/count-format.mjs", "count-format.mjs"],
     ["/review-plan.mjs", "review-plan.mjs"],
     ["/review-ledger.mjs", "review-ledger.mjs"],
     ["/languages.mjs", "languages.mjs"],
