@@ -14,7 +14,34 @@ test("identifies persisted Agent Review explanation sessions", () => {
         isInternalAgentReviewPrompt("[Agent Review internal request — exclude from change attribution]\n\nExplain code."),
         true,
     );
+    assert.equal(
+        isInternalAgentReviewPrompt("Open a fresh Agent Review canvas for this session's existing repository."),
+        true,
+    );
+    assert.equal(
+        isInternalAgentReviewPrompt("Reopen Agent Review for refchecker and restore the selected commit."),
+        true,
+    );
     assert.equal(isInternalAgentReviewPrompt("Add health diagnostics to the workflow service."), false);
+});
+
+test("Canvas open requests never become change intent", () => {
+    const context = buildSessionContext([
+        {
+            id: "open-canvas",
+            type: "user.message",
+            timestamp: "2026-10-10T20:20:00Z",
+            data: { content: "Open the existing Agent Review canvas for this repository." },
+        },
+        {
+            id: "assistant",
+            type: "assistant.message",
+            timestamp: "2026-10-10T20:20:01Z",
+            data: { content: "Opened Agent Review." },
+        },
+    ], ROOT);
+    assert.deepEqual(context.intent, []);
+    assert.deepEqual(context.turns, []);
 });
 
 test("maps a changed file to the user turn whose tool activity referenced it", () => {

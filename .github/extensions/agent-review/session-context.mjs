@@ -109,7 +109,8 @@ export function isInternalAgentReviewPrompt(content) {
         || text.startsWith("Write a concrete system-understanding annotation about")
         || text.startsWith("Write a concise system-oriented code-review annotation")
         || text.startsWith("Write a concise code-review annotation for")
-        || text.startsWith("Explain the review implications of adding or using Python package");
+        || text.startsWith("Explain the review implications of adding or using Python package")
+        || /^\s*(?:please\s+)?(?:open|reopen|recover)\b[\s\S]{0,160}\bAgent Review\b/i.test(text);
 }
 
 export function buildSessionContext(events, repoRoot) {
