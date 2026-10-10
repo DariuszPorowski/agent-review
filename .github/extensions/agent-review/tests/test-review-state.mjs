@@ -159,6 +159,35 @@ test("commit summary intent cannot borrow goals from a newer same-repository fea
     assert.equal(state.overviewContext().session_attribution[0].prompt, "Create cron planning.", "a saved worktree also excludes edits after its analysis");
 });
 
+test("historical reviews never fall back to unrelated repository intent", () => {
+    const state = new ReviewState("C:\\repo", {
+        reviewTarget: {
+            mode: "commit",
+            currentRef: "a".repeat(40),
+            intent: { kind: "commit", subject: "Upgrade dependency", body: "Resolve an advisory." },
+        },
+    });
+    state.model = {
+        summary: {},
+        metadata: { generated_at: "2026-10-10T08:05:04Z" },
+        changes: [{ path: "package-lock.json", status: "modified", lines_added: 2, lines_removed: 2 }],
+        source_files: { "package-lock.json": { current: "{}", diff: "+new" } },
+        nodes: [], attention: [], package_changes: [], coverage: {}, warnings: [],
+    };
+    state.sessionContext = {
+        intent: [
+            { timestamp: "2026-10-05T23:24:59Z", summary: "Contact the paper authors." },
+            { timestamp: "2026-10-05T23:34:55Z", summary: "Inspect incorrect dataset lines." },
+        ],
+        turns: [],
+    };
+
+    const context = state.overviewContext();
+
+    assert.deepEqual(context.session_intent, []);
+    assert.equal(context.commit_intent.subject, "Upgrade dependency");
+});
+
 test("base ref is re-resolved on every refresh", async () => {
     let calls = 0;
     const state = new ReviewState("C:\\definitely-not-a-repo", {

@@ -1445,6 +1445,7 @@ export class ReviewState {
             return [...new Set(attribution.map((item) => item.original_prompt || item.prompt).filter(Boolean))]
                 .map((summary) => ({ summary }));
         }
+        if (["commit", "pr"].includes(this.reviewTarget.mode)) return [];
         const before = this.reviewHistoryCutoff();
         const cutoff = before === null ? null : Date.parse(before);
         if (cutoff !== null && !Number.isFinite(cutoff)) throw new Error("Review history cutoff must be a valid timestamp.");
