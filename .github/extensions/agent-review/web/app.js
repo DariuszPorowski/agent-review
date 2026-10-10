@@ -1849,10 +1849,14 @@ function renderReviewPlan(model, findings) {
     const intro = el("section", "review-plan-intro");
     const introCopy = el("div", "");
     introCopy.append(
-        el("strong", "", "Review highest-risk unverified changes first"),
-        el("p", "muted", "Priority combines rule-based impact, changed lines, caller reach, and the strongest available test evidence. It updates after linked tests run."),
-        el("p", "review-progress", `${progress.completed} of ${progress.total} reviewed${progress.followUp ? ` · ${progress.followUp} needs follow-up` : ""}`),
+        el("strong", "", "Focused review"),
+        el("p", "muted", "Only changes that cross absolute impact, churn, caller-reach, dependency, or untested-behavior thresholds appear here."),
     );
+    if (progress.total) {
+        introCopy.append(el("p", "review-progress",
+            `${progress.completed} of ${progress.total} reviewed${progress.followUp ? ` · ${progress.followUp} needs follow-up` : ""}${
+                allPlan.omitted ? ` · ${allPlan.omitted} additional qualifying changes omitted` : ""}`));
+    }
     intro.append(introCopy);
     if (allPlan.length) {
         const start = el("button", "review-next", next ? "Review next" : "Review complete");
@@ -1863,7 +1867,9 @@ function renderReviewPlan(model, findings) {
     }
     view.append(intro);
     if (!plan.length) {
-        view.append(el("p", "collection-empty", "No risk-ranked changes match this filter."));
+        view.append(el("p", "collection-empty", query
+            ? "No focused review items match this filter."
+            : "No changes crossed the focused review thresholds. Use Architecture, Files, or Code paths for exhaustive inspection."));
         elements.graph.replaceChildren(view);
         return;
     }

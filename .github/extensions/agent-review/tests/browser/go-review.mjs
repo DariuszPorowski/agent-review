@@ -57,9 +57,11 @@ try {
         await page.locator("#summary .metric").first().waitFor();
         assert.match(await page.locator("#summary").getAttribute("title"), /Go LOC/);
         assert.match(await page.locator(".quality-warning").textContent(), /Go coverprofile/);
-        const plan = page.locator(".review-plan-row", { hasText: "Classify" }).first();
+        assert.equal(await page.locator(".review-plan-row", { hasText: "Classify" }).count(), 0,
+            "a small callable change without an absolute risk signal stays out of the focused plan");
+        const plan = page.locator(".review-plan-row", { hasText: "golang.org/x/sync" }).first();
         await plan.waitFor();
-        assert.match(await plan.textContent(), /Classify/);
+        assert.match(await plan.textContent(), /added dependency/);
         await plan.focus();
         await page.keyboard.press("Tab");
         await page.keyboard.press("Shift+Tab");

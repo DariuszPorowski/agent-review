@@ -1,5 +1,8 @@
 import { pathEvidence } from "./decision-map.mjs";
 
+const MIN_FINDING_SCORE = 65;
+const MAX_REVIEW_ITEMS = 15;
+
 const evidenceGroup = (evidence) => evidence?.level === "confirmed"
     ? "confirmed"
     : ["asserted", "exercised", "reachable", "possible"].includes(evidence?.level)
@@ -15,13 +18,27 @@ function nodeCallers(node) {
     return (node?.metrics?.direct_callers || 0) + (node?.metrics?.transitive_callers || 0);
 }
 
-function scoreNode(node, staticScore, evidence) {
+function nodeQualification(node, staticScore, evidence) {
     const churn = nodeChurn(node);
     const callers = nodeCallers(node);
-    const evidenceGap = Math.min(30, evidence.untested * 12 + evidence.inferred * 4);
-    const churnWeight = Math.min(10, Math.ceil(Math.log2(churn + 1) * 2));
-    const reachWeight = Math.min(12, callers * 3);
-    return Math.min(100, (staticScore || 20) + evidenceGap + churnWeight + reachWeight);
+    const complexityDelta = Number(node?.metrics?.complexity_current) - Number(node?.metrics?.complexity_base);
+    if (staticScore >= MIN_FINDING_SCORE) return { eligible: true, floor: staticScore };
+    if (complexityDelta >= 2 && (callers >= 3 || churn >= 10)) return { eligible: true, floor: 65 };
+    if (churn >= 50) return { eligible: true, floor: 60 };
+    if ((callers >= 10 && churn >= 3) || (callers >= 5 && churn >= 10)) {
+        return { eligible: true, floor: 60 };
+    }
+    if (evidence.untested >= 3 && churn >= 15) return { eligible: true, floor: 50 };
+    return { eligible: false, floor: 0 };
+}
+
+function scoreNode(node, qualification, evidence) {
+    const churn = nodeChurn(node);
+    const callers = nodeCallers(node);
+    const evidenceGap = Math.min(18, evidence.untested * 6 + evidence.inferred * 2);
+    const churnWeight = churn >= 10 ? Math.min(12, Math.ceil(Math.log2(churn + 1) * 2)) : 0;
+    const reachWeight = callers >= 3 ? Math.min(12, callers * 2) : 0;
+    return Math.min(100, qualification.floor + evidenceGap + churnWeight + reachWeight);
 }
 
 function evidenceSummary(callable, run) {
@@ -80,16 +97,19 @@ export function buildReviewPlan(model, decisionMap, testRun, findings = []) {
         const nodeFindings = findingsByNode.get(callable.id) || [];
         const evidence = evidenceSummary(callable, testRun);
         const staticScore = Math.max(0, ...nodeFindings.map((finding) => finding.impact_score || 0));
+        const qualification = nodeQualification(node, staticScore, evidence);
+        if (!qualification.eligible) continue;
         units.push({
             id: `review:${callable.id}`,
             kind: "callable",
             title: callable.qualname || node.display_name || node.name || callable.id,
             path: callable.path || node.path,
             line: callable.line || node.start_line,
-            score: scoreNode(node, staticScore, evidence),
+            score: scoreNode(node, qualification, evidence),
             reasons: planReasons(node, evidence, nodeFindings),
             evidence,
             finding: nodeFindings[0] || null,
+            findingTypes: [...new Set(nodeFindings.map((finding) => finding.type).filter(Boolean))],
             node,
             callable,
             preferred: preferredEntry(evidence),
@@ -102,22 +122,37 @@ export function buildReviewPlan(model, decisionMap, testRun, findings = []) {
         if (!node) continue;
         const staticScore = Math.max(0, ...nodeFindings.map((finding) => finding.impact_score || 0));
         const evidence = { confirmed: 0, inferred: 0, untested: 0, entries: [] };
+        const qualification = nodeQualification(node, staticScore, evidence);
+        if (!qualification.eligible) continue;
         units.push({
             id: `review:${nodeId}`,
             kind: "node",
             title: node.display_name || node.name || nodeId,
             path: node.path,
             line: node.start_line,
-            score: scoreNode(node, staticScore, evidence),
+            score: scoreNode(node, qualification, evidence),
             reasons: planReasons(node, evidence, nodeFindings),
             evidence,
             finding: nodeFindings[0],
+            findingTypes: [...new Set(nodeFindings.map((finding) => finding.type).filter(Boolean))],
             node,
         });
     }
 
     for (const item of model.package_changes || []) {
         const finding = packageFindings.get(item.id);
+        const declarations = item.declared_current?.length ? item.declared_current : item.declared_base || [];
+        const direct = declarations.some((entry) => !entry.transitive);
+        const runtime = declarations.some((entry) => ["runtime", "optional"].includes(entry.group));
+        const major = (() => {
+            const before = item.declared_base?.[0]?.resolved_version;
+            const current = item.resolved_current;
+            if (!before || !current) return false;
+            const oldMajor = Number.parseInt(String(before).replace(/^v/, "").split(".")[0], 10);
+            const newMajor = Number.parseInt(String(current).replace(/^v/, "").split(".")[0], 10);
+            return Number.isInteger(oldMajor) && Number.isInteger(newMajor) && oldMajor !== newMajor;
+        })();
+        if (!direct || !(item.change === "added" || (item.change === "removed" && runtime) || major)) continue;
         const score = finding?.impact_score || (item.change === "added" ? 45 : 35);
         const usageCount = item.usage_locations?.length || 0;
         units.push({
@@ -136,7 +171,22 @@ export function buildReviewPlan(model, decisionMap, testRun, findings = []) {
         });
     }
 
-    return units.sort((a, b) => b.score - a.score
+    const callableUnits = units.filter((item) => item.kind === "callable");
+    const focused = units.filter((item) => {
+        if (item.kind !== "node" || !["module", "class"].includes(item.node?.kind)) return true;
+        const aggregateOnly = item.findingTypes.length > 0
+            && item.findingTypes.every((type) => ["size", "complexity", "new_complexity"].includes(type));
+        if (!aggregateOnly) return true;
+        return !callableUnits.some((candidate) =>
+            candidate.path === item.path
+            && (!item.node.start_line || !candidate.line
+                || (candidate.line >= item.node.start_line && candidate.line <= (item.node.end_line || candidate.line))));
+    });
+    const ordered = focused.sort((a, b) => b.score - a.score
         || (b.evidence.untested - a.evidence.untested)
         || String(a.path || a.title).localeCompare(String(b.path || b.title)));
+    const plan = ordered.slice(0, MAX_REVIEW_ITEMS);
+    plan.omitted = Math.max(0, ordered.length - plan.length);
+    plan.qualifying = ordered.length;
+    return plan;
 }
