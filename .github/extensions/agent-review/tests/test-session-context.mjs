@@ -22,6 +22,8 @@ test("identifies persisted Agent Review explanation sessions", () => {
         isInternalAgentReviewPrompt("Reopen Agent Review for refchecker and restore the selected commit."),
         true,
     );
+    assert.equal(isInternalAgentReviewPrompt("load agent review canvas"), true);
+    assert.equal(isInternalAgentReviewPrompt("**Open the Agent Review canvas for this session’s existing repository**"), true);
     assert.equal(isInternalAgentReviewPrompt("Add health diagnostics to the workflow service."), false);
 });
 
