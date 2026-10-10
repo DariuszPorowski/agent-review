@@ -91,7 +91,7 @@ try {
         state.packageAssessments.set(`npm:${item.name}@${item.resolved_current}`, {
             name: item.name, version: item.resolved_current,
             risk: { level: "unknown", score: 0, reasons: ["No public services are contacted by this regression."] },
-            sources: {}, indicators: {},
+            sources: {}, indicators: { provenance: { summary: `${item.name} registry description.` } },
         });
     }
     server = await startReviewServer(state);
@@ -125,7 +125,8 @@ try {
         await page.locator(`.node[aria-label^="${module.name},"]`).click();
         await page.locator('.node[aria-label^="resolveReference,"]').click();
         await page.waitForFunction(() => /packages\/core\/src\/resolver\.js:\d+/.test(document.querySelector("#source-title")?.textContent || ""));
-        assert.match(await page.locator("#source-risk").textContent(), /Cyclomatic complexity increased.*Priority \d+\/100/);
+        assert.match(await page.locator("#source-risk").textContent(),
+            /Cyclomatic complexity increased.*Priority \d+\/100.*resolveReference increased from 1 to 3/s);
         await page.locator("#source-decisions .source-verification").waitFor();
         assert.match(await page.locator("#source-decisions .source-verification").textContent(), /Run linked tests/);
         if (theme === "light") {
@@ -147,6 +148,8 @@ try {
             await page.locator("#packages .review-card").filter({ hasText: new RegExp(item.name) }).click();
             await page.locator("#package-detail .usage-list").waitFor();
             assert.match(await page.locator("#package-detail").textContent(), new RegExp(item.resolved_current.replaceAll(".", "\\.")));
+            assert.equal(await page.locator("#package-detail .package-description").textContent(),
+                `${item.name} registry description.`);
             await page.waitForFunction(() => !/Checking .* metadata/i.test(
                 document.querySelector("#package-detail")?.textContent || ""));
             const sourceLink = page.locator("#package-detail .usage-list .source-reference").first();

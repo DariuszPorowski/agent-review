@@ -36,6 +36,10 @@ function nugetProjectCandidates(model, dependency) {
 
 export function buildPackageUsageContext(model, dependency, isTestPath = () => false) {
     const locations = dependency.usage_locations || [];
+    const lockedParents = [...new Map(
+        (dependency.declared_current || []).flatMap((declaration) => declaration.required_by || [])
+            .map((parent) => [`${parent.name}\0${parent.version || ""}\0${parent.source || ""}\0${parent.line || ""}`, parent]),
+    ).values()];
     const byPath = new Map();
     for (const location of locations) {
         const match = /^(.*):(\d+)$/.exec(location);
@@ -92,10 +96,12 @@ export function buildPackageUsageContext(model, dependency, isTestPath = () => f
         scope: candidates.length ? "Saved source from projects declaring this NuGet dependency; unresolved associations are candidates, not proof"
             : "Actual consuming code from the selected saved review snapshot",
         files,
+        locked_dependency_parents: lockedParents,
         omitted_importing_files: Math.max(0, paths.length - 12),
         max_code_characters: 64_000,
         note: candidates.length ? "Inspect actual API calls in these saved implementations. Namespace spelling alone does not prove NuGet-to-assembly usage; label candidate package associations as inferred. Missing adoption motivation remains unknown."
             : locations.length ? "Import locations alone do not prove usage; inspect the supplied implementations."
+            : lockedParents.length ? "No direct source import is expected for this transitive package. The saved lockfile dependency parents are deterministic usage evidence."
             : "No static import was mapped. Do not invent runtime usage from the package name.",
     };
 }

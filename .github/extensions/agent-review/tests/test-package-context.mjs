@@ -27,6 +27,23 @@ test("package code evidence is bounded and missing sources never imply usage", (
     assert.match(buildPackageUsageContext({}, { usage_locations: [] }).note, /Do not invent runtime usage/);
 });
 
+test("transitive npm briefings receive reverse lockfile dependency evidence", () => {
+    const parent = {
+        name: "postcss",
+        version: "8.5.25",
+        specifier: "^1.2.1",
+        source: "web-ui/package-lock.json",
+        line: 400,
+    };
+    const context = buildPackageUsageContext({}, {
+        usage_locations: [],
+        declared_current: [{ transitive: true, required_by: [parent] }],
+    });
+    assert.deepEqual(context.locked_dependency_parents, [parent]);
+    assert.match(context.note, /deterministic usage evidence/);
+    assert.match(buildPackagePrompt({ name: "source-map-js" }, {}, context), /postcss/);
+});
+
 test("NuGet briefings receive saved implementations from declaring projects even without assembly usage edges", () => {
     const receipt = "using Newtonsoft.Json;\nclass ReviewPolicy {\n  public string CreateReceipt() {\n    return JsonConvert.SerializeObject(new { Decision = \"accept\" });\n  }\n}\n";
     const model = {

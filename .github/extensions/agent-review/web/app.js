@@ -1740,7 +1740,7 @@ function renderSource({ preserveScroll = false, focusGap = null } = {}) {
             if (index === 0) row.classList.add("focus-start");
             if (index === focused.length - 1) row.classList.add("focus-end");
         });
-        if (state.sourceTab !== "diff" && !preserveScroll) focused[0]?.scrollIntoView({ block: "center" });
+        if (!preserveScroll) focused[0]?.scrollIntoView({ block: "center" });
     }
     const cited = applyCitedHighlights(rows);
     if (preserveScroll) {
@@ -2412,6 +2412,9 @@ function renderSourceRisk() {
         el("strong", "", item.finding?.title || item.title),
         el("b", "impact-score", `Priority ${item.score}/100`),
     );
+    const explanation = item.finding?.reason || item.finding?.body;
+    if (explanation) panel.append(heading, el("p", "source-risk-copy", explanation));
+    else panel.append(heading);
     const reasons = el("div", "source-risk-reasons");
     for (const reason of item.reasons.filter((reason) => reason !== item.finding?.title)) {
         reasons.append(el("span", "", reason));
@@ -2445,7 +2448,7 @@ function renderSourceRisk() {
         }
     });
     controls.append(dispositionLabel, note, save);
-    panel.append(heading, reasons, controls);
+    panel.append(reasons, controls);
 }
 
 function renderSourceDecisions() {
@@ -2498,6 +2501,17 @@ function packageVersion(item) {
     const declarations = item.declared_current || [];
     const declared = declarations.map((entry) => entry.specifier).filter(Boolean).join(", ");
     return item.resolved_current || declared || "version unspecified";
+}
+
+function packageLockParents(item) {
+    const parents = new Map();
+    for (const declaration of [...(item.declared_current || []), ...(item.declared_base || [])]) {
+        for (const parent of declaration.required_by || []) {
+            const key = `${parent.name}\0${parent.version || ""}\0${parent.source || ""}\0${parent.line || ""}`;
+            if (!parents.has(key)) parents.set(key, parent);
+        }
+    }
+    return [...parents.values()];
 }
 
 function packageKey(item) {
@@ -2600,13 +2614,15 @@ function renderPackageView(model) {
         const heading = el("div", "package-row-heading");
         heading.append(el("strong", "", item.name), el("span", `label label-${item.change}`, item.change));
         const usage = item.usage_locations?.length || 0;
+        const lockedParents = packageLockParents(item);
         row.append(
             heading,
             el("small", "", `${item.ecosystem === "nuget" ? "NuGet · "
                 : item.ecosystem === "gomod" ? "Go module · "
                     : item.ecosystem === "cargo" ? "Cargo · " : ""}${packageVersionText(item)}${
                 item.change === "removed" ? "" : usage ? ` · used in ${usage} file${usage === 1 ? "" : "s"}`
-                    : item.ecosystem === "nuget" ? " · usage unresolved" : " · no usages found"}`),
+                    : lockedParents.length ? ` · required by ${lockedParents.length} locked package${lockedParents.length === 1 ? "" : "s"}`
+                        : item.ecosystem === "nuget" ? " · usage unresolved" : " · no usages found"}`),
         );
         row.addEventListener("click", () => selectPackage(item));
         list.append(row);
@@ -2707,6 +2723,13 @@ function renderPackagePanel() {
             declared?.group ? `${declared.group} dependency` : null,
         ].filter(Boolean).join(" · ")),
     );
+    const packageDescription = assessment?.indicators?.provenance?.summary;
+    header.append(el("p", `package-description${packageDescription ? "" : " muted"}`,
+        packageDescription || (entry.assessmentError
+            ? "Package description unavailable because registry metadata could not be loaded."
+            : assessment
+                ? "No package description was provided by the public registry."
+                : "Loading package description from the public registry…")));
     sections.push(header);
     const declaration = el("p", "package-declaration-note");
     declaration.append(document.createTextNode(`Reported because a dependency declaration was ${item.change} in `));
@@ -2812,6 +2835,23 @@ function renderPackagePanel() {
 
     // Usage
     const usage = item.usage_locations || [];
+    const lockedParents = packageLockParents(item);
+    if (lockedParents.length) {
+        const parentList = el("ul", "usage-list");
+        for (const parent of lockedParents) {
+            const row = el("li", "");
+            row.append(el("strong", "", parent.name),
+                document.createTextNode(`${parent.version ? `@${parent.version}` : ""} requires ${item.name} ${parent.specifier || ""}`));
+            if (parent.source && parent.line) {
+                row.append(document.createTextNode(" · "), sourceReferenceButton(
+                    `${parent.source}:${parent.line}`,
+                    { path: parent.source, lines: [parent.line], packageName: item.name },
+                ));
+            }
+            parentList.append(row);
+        }
+        sections.push(packageSection(`Locked dependency chain (${lockedParents.length})`, parentList));
+    }
     const usageList = el("ul", "usage-list");
     for (const location of usage) {
         const reference = parseSourceReference(location);
@@ -2823,7 +2863,9 @@ function renderPackagePanel() {
         `Static usage locations (${usage.length})`,
         usage.length ? usageList : el("p", "flash flash-attention", item.ecosystem === "nuget"
             ? "NuGet-to-assembly usage is unresolved. Namespace spelling does not prove package usage. Review the saved manifest and implementation."
-            : "No static import was mapped to this declaration. This is a manifest change, not an observed import. Verify why the dependency is needed: it may support tooling, dynamic loading, use a different import name, or be unused."),
+            : lockedParents.length
+                ? "No direct source import is expected for this transitive package. Its observed usage is the saved lockfile dependency chain above."
+                : "No static import was mapped to this declaration. This is a manifest change, not an observed import. Verify why the dependency is needed: it may support tooling, dynamic loading, use a different import name, or be unused."),
     ));
 
     if (assessment) {

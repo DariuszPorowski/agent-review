@@ -104,6 +104,10 @@ class NodePackageTests(unittest.TestCase):
                     "": {"dependencies": {"axios": "^1"}},
                     "node_modules/axios": {"version": axios},
                     "node_modules/source-map-js": {"version": source_map, "dev": True},
+                    "node_modules/postcss": {
+                        "version": "8.5.25",
+                        "dependencies": {"source-map-js": "^1.2.1"},
+                    },
                 }}),
             }
         adapter = NodeAdapter()
@@ -118,6 +122,9 @@ class NodePackageTests(unittest.TestCase):
         self.assertTrue(transitive["transitive"])
         self.assertEqual(transitive["source"], "package-lock.json")
         self.assertGreater(transitive["line"], 0)
+        self.assertEqual(transitive["required_by"][0]["name"], "postcss")
+        self.assertEqual(transitive["required_by"][0]["version"], "8.5.25")
+        self.assertGreater(transitive["required_by"][0]["line"], 0)
 
     def test_ambiguous_transitive_locked_versions_are_not_misreported(self):
         warnings = []

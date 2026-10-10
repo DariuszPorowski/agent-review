@@ -240,7 +240,38 @@ def parse_locked_packages(
                 "transitive": True,
                 "dev": bool(entry.get("dev")),
                 "optional": bool(entry.get("optional")),
+                "required_by": [],
             }
+            for parent_path, parent in packages.items():
+                if not isinstance(parent, dict):
+                    continue
+                requirement = next((
+                    values[name]
+                    for field in ("dependencies", "optionalDependencies", "peerDependencies")
+                    if isinstance((values := parent.get(field)), dict) and name in values
+                ), None)
+                if requirement is None:
+                    continue
+                parent_name = parent.get("name")
+                if not parent_name and "node_modules/" in parent_path:
+                    parent_name = parent_path.rsplit("node_modules/", 1)[1]
+                if not parent_name:
+                    continue
+                relationship = {
+                    "name": parent_name,
+                    "version": parent.get("version"),
+                    "specifier": requirement,
+                    "source": path,
+                }
+                dependency_span = next((
+                    spans.get(("packages", parent_path, field, name))
+                    for field in ("dependencies", "optionalDependencies", "peerDependencies")
+                    if spans.get(("packages", parent_path, field, name))
+                ), None)
+                if dependency_span:
+                    relationship.update(_location(text, dependency_span))
+                item["required_by"].append(relationship)
+            item["required_by"].sort(key=lambda parent: (parent["name"], parent.get("version") or ""))
             span = spans.get(("packages", install_path))
             if span:
                 item.update(_location(text, span))

@@ -90,8 +90,8 @@ lines were inserted or removed; a change ruler beside the scrollbar marks every
 change and cited line and jumps to it on click. In Diff, each unchanged region
 between changes can be expanded in place and collapsed again. Findings
 highlight relevant lines; references outside diff hunks show verified,
-explicitly labeled unchanged context. New diffs start at the top while keeping
-referenced lines highlighted. Compact gutters, clickable source links,
+explicitly labeled unchanged context. New source and diff views navigate to the
+selected finding or function. Compact gutters, clickable source links,
 and back/forward navigation keep the code central. Copilot briefings explain
 usage, behavior changes, motivation, risk, and what to verify.
 The source workspace keeps the diff first, shows its risk priority and reasons,

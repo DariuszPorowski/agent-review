@@ -10,9 +10,16 @@ test("npm assessment sends npm coordinates only and retains unknown broader risk
         fetchImpl: async (url, init) => {
             requests.push({ url, body: init.body ? JSON.parse(init.body) : null });
             return { ok: true, json: async () => url.includes("osv.dev") ? {} : {
-                "dist-tags": { latest: "4.0.0" }, versions: { "1.2.3": { license: "MIT" } },
+                "dist-tags": { latest: "4.0.0" },
+                versions: { "1.2.3": { license: "MIT", description: "Demo package",
+                    repository: "example/demo" } },
+                time: {
+                    "1.2.3": "2025-12-01T00:00:00.000Z",
+                    "4.0.0": "2026-09-01T00:00:00.000Z",
+                },
             } };
         },
+        now: "2026-10-10T00:00:00.000Z",
     });
     assert.equal(requests.length, 2);
     assert.equal(requests[1].body.package.ecosystem, "npm");
@@ -20,6 +27,10 @@ test("npm assessment sends npm coordinates only and retains unknown broader risk
     assert.ok(requests.every(({ url }) => !url.includes("pypi")));
     assert.equal(assessment.version, "1.2.3");
     assert.equal(assessment.indicators.vulnerability_count, 0);
+    assert.equal(assessment.indicators.provenance.summary, "Demo package");
+    assert.equal(assessment.indicators.repository_url, "https://github.com/example/demo");
+    assert.equal(assessment.indicators.maintenance.status, "active");
+    assert.equal(assessment.indicators.maintenance.releases_last_12_months, 2);
     assert.equal(assessment.risk.level, "unknown");
     assert.match(packageEvidenceLinks("@scope/demo", "1.2.3", null, "npm").registry, /npmjs/);
 });
@@ -47,6 +58,22 @@ test("npm registry and advisory errors are surfaced independently", async () => 
     assert.equal(assessment.sources.npm.status, "error");
     assert.equal(assessment.sources.osv.error, "offline");
     assert.equal(assessment.risk.level, "unknown");
+});
+
+test("npm assessment honors a configured registry and preserves TLS failure details", async () => {
+    const requests = [];
+    const tls = Object.assign(new Error("SSL alert handshake failure"), { code: "ERR_SSL_HANDSHAKE" });
+    const assessment = await assessNpmPackageRisk("demo", "1.0.0", {
+        registryUrl: "https://packages.example/npm/",
+        fetchImpl: async (url) => {
+            requests.push(url);
+            if (url.includes("packages.example")) throw new TypeError("fetch failed", { cause: tls });
+            return { ok: true, json: async () => ({ vulns: [] }) };
+        },
+    });
+    assert.ok(requests.some((url) => /^https:\/\/packages\.example\/npm\/demo$/.test(url)));
+    assert.match(assessment.sources.npm.error, /fetch failed.*ERR_SSL_HANDSHAKE.*SSL alert handshake failure/);
+    assert.equal(assessment.sources.osv.status, "ok");
 });
 
 test("provider assessment uses ecosystem-qualified identity and reviewed versions", async () => {
