@@ -69,7 +69,8 @@ test("cancel API waits for real analyzer descendants to exit; GET and SSE never 
     });
     const server = await startReviewServer(state);
     t.after(async () => { await state.dispose(); await server.close(); });
-    await fetch(`${server.url}api/state`);
+    const initial = await fetch(`${server.url}api/refresh`, { method: "POST" });
+    assert.equal(initial.status, 202);
     const pids = await pidsAt(pidFile);
     const started = Date.now();
     const result = await (await fetch(`${server.url}api/cancel`, { method: "POST" })).json();

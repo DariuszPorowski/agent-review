@@ -3051,17 +3051,22 @@ async function runCustomAnalyses(input = {}) {
 }
 
 function render() {
-    elements.review_target_label.textContent = state.payload?.review_target?.label || "Worktree";
+    const targetMode = state.payload?.review_target?.mode || "none";
+    elements.review_target_label.textContent = state.payload?.review_target?.label || "Choose review target";
     const targetKey = JSON.stringify(state.payload?.review_target || {});
     if (state.reviewTargetKey !== targetKey) {
         state.reviewTargetKey = targetKey;
         const target = state.payload?.review_target;
-        state.reviewPickerPending = false;
+        state.reviewPickerPending = targetMode === "none";
         const selectedRef = target?.currentRef && target.mode === "commit" ? target.currentRef : target?.ref;
-        const pickerMatches = elements.review_mode.value === target?.mode
+        const pickerMatches = targetMode !== "none" && elements.review_mode.value === target?.mode
             && [...elements.review_ref.options].some((option) => option.value === selectedRef);
-        elements.review_mode.value = target?.mode || "worktree";
-        if (pickerMatches) elements.review_ref.value = selectedRef;
+        elements.review_mode.value = targetMode === "none" ? "" : targetMode;
+        if (targetMode === "none") {
+            elements.review_ref.classList.add("hidden");
+            elements.review_list_refresh.classList.add("hidden");
+            elements.review_more.classList.add("hidden");
+        } else if (pickerMatches) elements.review_ref.value = selectedRef;
         else loadReviewOptions({ selectedRef });
         resetReviewNavigation();
     }
@@ -3078,7 +3083,8 @@ function render() {
     elements.change_repository.disabled = Boolean(payload?.loading || state.repositorySubmitting || state.connectionLost);
     const progress = payload?.progress;
     elements.status.textContent = payload?.loading ? `Analyzing ${progress?.percent || 0}%`
-        : payload?.cancelled ? "Analysis cancelled" : model ? payload.restored_from_cache ? "Saved review" : "Analysis current" : "Waiting";
+        : payload?.cancelled ? "Analysis cancelled" : model ? payload.restored_from_cache ? "Saved review" : "Analysis current"
+            : targetMode === "none" ? "Choose review" : "Waiting";
     elements.status.title = payload?.loading ? progress?.message || "Analyzing repository"
         : payload?.analyzed_at ? `Analyzed ${new Date(payload.analyzed_at).toLocaleString()}${payload.restored_from_cache ? ". Reanalyze to update." : ""}` : "";
     elements.status.classList.toggle("working", Boolean(payload?.loading));
@@ -3444,7 +3450,9 @@ function renderReviewPickerNotice() {
         if (!loading) elements.review_target_label.textContent = "Choose a review target";
         if (!state.payload?.loading) elements.status.textContent = loading ? "Loading review…" : "Choose review";
         elements.review_picker_notice.textContent = state.reviewOpenError ? ""
-            : `Select ${elements.review_mode.value === "pr" ? "a pull request" : "a commit"} to load its review automatically.`;
+            : !elements.review_mode.value
+                ? "Choose Worktree, Commit, or Pull request to begin analysis."
+                : `Select ${elements.review_mode.value === "pr" ? "a pull request" : "a commit"} to load its review automatically.`;
         if (state.reviewOpenError) {
             const retry = el("button", "brief-generate", "Retry review");
             retry.type = "button";
@@ -3615,7 +3623,7 @@ elements.repository_picker_form.addEventListener("submit", async (event) => {
         state.payload = await api("/api/state");
         resetReviewNavigation();
         state.reviewTargetKey = null;
-        state.reviewPickerPending = false;
+        state.reviewPickerPending = true;
         state.customPrompts = [];
         state.customLibraryError = null;
         elements.repository_picker.close();

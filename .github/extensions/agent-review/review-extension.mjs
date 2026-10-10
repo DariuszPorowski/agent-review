@@ -68,7 +68,7 @@ export const canvas = createCanvas({
 function createReviewState(requestedPath, input) {
     const state = new ReviewState(requestedPath, {
         baseRef: input.baseRef,
-        reviewTarget: input.reviewTarget,
+        reviewTarget: { mode: "none", label: "Choose review target", currentRef: null },
         // Re-read on every refresh so a base_ref added by a later commit or checkout takes effect.
         resolveBaseRef: async () => {
             if (input.baseRef) return input.baseRef;
@@ -127,7 +127,6 @@ async function buildInstance(instanceId, input, serverOptions) {
         || process.cwd();
     const stateKey = `${requestedPath}|${input.baseRef || ""}`;
     let state = reviewStates.get(stateKey);
-    const isNewState = !state;
     if (!state) {
         state = createReviewState(requestedPath, input);
         reviewStates.set(stateKey, state);
@@ -191,7 +190,7 @@ async function buildInstance(instanceId, input, serverOptions) {
         throw error;
     }
     await persistMarker().catch((error) => console.error("[agent-review] Unable to persist Canvas marker:", error));
-    if (isNewState) {
+    if (!state.model && state.reviewTarget.mode === "none") {
         resolveRepoRoot(requestedPath)
             .then(async (repoRoot) => {
                 if (state.disposed || state.cancelled) return;
@@ -201,7 +200,7 @@ async function buildInstance(instanceId, input, serverOptions) {
                     || config.base_ref
                     || process.env.COPILOT_DEFAULT_BRANCH
                     || null;
-                if (!state.disposed && !state.cancelled) return state.refresh();
+                if (!state.disposed && !state.cancelled) state.broadcast("repository-ready");
             })
             .catch((error) => {
                 if (error.name !== "AbortError" && !state.disposed) {

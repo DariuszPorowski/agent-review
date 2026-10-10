@@ -400,8 +400,9 @@ clean worktree omits uncommitted changes in the original checkout.
 | **Commit** | Selected commit's first parent; an empty tree for a root commit |
 | **Pull request** | Resolved PR head against its merge base with the PR base |
 
-Switching to Commit or Pull request loads a list, not a review. Explicitly
-selecting an item loads or analyzes it automatically; Worktree loads immediately.
+Opening Agent Review does not analyze any snapshot. Choose Worktree, Commit, or
+Pull request first. Selecting Worktree starts its analysis immediately; switching
+to Commit or Pull request loads a list, and selecting an item starts that review.
 PR objects are fetched without checking out files or changing your worktree.
 
 Worktree selection honors Git ignore rules, including nested/global/local rules

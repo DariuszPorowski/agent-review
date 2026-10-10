@@ -92,11 +92,6 @@ export function startReviewServer(state, options = {}) {
                 return;
             }
             if (req.method === "GET" && pathname === "/api/state") {
-                if (!state.model && !state.loading && !state.cancelled && !state.disposed) {
-                    state.refresh().catch((error) => {
-                        if (error.name !== "AbortError") console.error("[agent-review refresh]", error);
-                    });
-                }
                 sendJson(res, state.snapshot());
                 return;
             }
@@ -121,10 +116,7 @@ export function startReviewServer(state, options = {}) {
                 const input = await readJson(req);
                 const snapshot = options.changeRepository
                     ? await options.changeRepository(input) : await state.setRepository(input);
-                state.refresh().catch((error) => {
-                    if (error.name !== "AbortError") console.error("[agent-review repository analysis]", error);
-                });
-                sendJson(res, { ok: true, ...snapshot }, 202);
+                sendJson(res, { ok: true, ...snapshot });
                 return;
             }
             if (req.method === "POST" && pathname === "/api/rule-check") {
@@ -193,11 +185,6 @@ export function startReviewServer(state, options = {}) {
                     Connection: "keep-alive",
                 });
                 res.write(": connected\n\n");
-                if (!state.model && !state.loading && !state.cancelled && !state.disposed) {
-                    state.refresh().catch((error) => {
-                        if (error.name !== "AbortError") console.error("[agent-review refresh]", error);
-                    });
-                }
                 res.write(`event: state\ndata: ${JSON.stringify({ type: "connected", ...state.snapshot() })}\n\n`);
                 clients.add(res);
                 const ping = setInterval(() => res.write(": ping\n\n"), 25_000);

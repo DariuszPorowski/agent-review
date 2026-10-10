@@ -370,7 +370,7 @@ export class ReviewState {
             this.baseRef = this.worktreeBaseRef;
             this.resolveBaseRef = async () => this.repositoryBaseOverride
                 || (await loadReviewConfig(this.repoRoot)).base_ref || process.env.COPILOT_DEFAULT_BRANCH || null;
-            this.reviewTarget = { mode: "worktree", label: "Worktree", currentRef: null };
+            this.reviewTarget = { mode: "none", label: "Choose review target", currentRef: null };
             this.model = null;
             this.annotations = {};
             this.annotationPromises = new Map();
@@ -402,8 +402,8 @@ export class ReviewState {
             this.restoredFromCache = false;
             this.error = null;
             this.cancelled = false;
-            this.loading = true;
-            this.progress = { phase: "starting", percent: 0, message: "Starting analysis of the selected repository" };
+            this.loading = false;
+            this.progress = null;
             this.broadcast("repository-changed");
             return this.snapshot();
         } finally {
