@@ -2,32 +2,66 @@ import { SOURCE_FILE_EXTENSION_PATTERN } from "./web/source-references.mjs";
 
 export const CUSTOM_ANALYSIS_HEADINGS = ["Findings", "Verification"];
 
-export function customAnalysisContext(model) {
-    let remaining = 40_000;
+function allocateDiffBudget(changes, sourceFiles, budget) {
+    const candidates = changes
+        .filter((change) => !sourceFiles?.[change.path]?.binary)
+        .map((change) => ({ path: change.path, length: String(sourceFiles?.[change.path]?.diff || "").length }))
+        .filter((file) => file.length > 0)
+        .sort((a, b) => a.length - b.length);
+    const allocations = new Map();
+    // Keep small diffs complete; larger diffs share the remaining budget.
+    for (const [index, file] of candidates.entries()) {
+        const allowance = Math.min(file.length, Math.floor(budget / (candidates.length - index)));
+        allocations.set(file.path, allowance);
+        budget -= allowance;
+    }
+    return allocations;
+}
+
+export function customAnalysisContext(model, {
+    maxSourceCharacters = 40_000,
+    maxFiles = 20,
+    diffOnly = false,
+} = {}) {
+    if (!Number.isSafeInteger(maxSourceCharacters) || maxSourceCharacters <= 0
+        || !Number.isSafeInteger(maxFiles) || maxFiles <= 0 || typeof diffOnly !== "boolean") {
+        throw new Error("Review evidence limits must be positive integers and diffOnly must be a boolean.");
+    }
+    let remaining = maxSourceCharacters;
     let truncated = false;
     const changes = (model.changes || []).filter((item) => item.status !== "unchanged")
         .sort((a, b) => (b.lines_added + b.lines_removed) - (a.lines_added + a.lines_removed));
+    const selected = changes.slice(0, maxFiles);
+    const diffBudgets = diffOnly ? allocateDiffBudget(selected, model.source_files, maxSourceCharacters) : null;
     const files = [];
-    for (const change of changes.slice(0, 20)) {
+    for (const change of selected) {
         const source = model.source_files?.[change.path];
         if (source?.binary) {
             files.push({ path: change.path, status: change.status, unavailable: "Binary file" });
             continue;
         }
-        if (remaining <= 0) {
+        const savedDiff = String(source?.diff || "");
+        if (diffOnly && !savedDiff) {
+            truncated = true;
+            files.push({ path: change.path, status: change.status, unavailable: "No textual diff available" });
+            continue;
+        }
+        const allowance = diffOnly ? diffBudgets.get(change.path) || 0 : Math.min(6000, remaining);
+        if (allowance <= 0) {
             truncated = true;
             files.push({ path: change.path, status: change.status, unavailable: "Source budget exhausted",
                 current_line_count: source?.current ? source.current.split(/\r?\n/).length : 0 });
             continue;
         }
-        const diff = String(source?.diff || "").slice(0, Math.min(6000, remaining));
+        const diff = savedDiff.slice(0, allowance);
         remaining -= diff.length;
         const currentText = String(source?.current || "");
-        const numbered = currentText.slice(0, 4000).split(/\r?\n/)
+        const numbered = diffOnly ? "" : currentText.slice(0, 4000).split(/\r?\n/)
             .map((line, index) => `${index + 1}: ${line}`).join("\n");
         const current = numbered.slice(0, Math.min(4000, remaining));
         remaining -= current.length;
-        if (diff.length < (source?.diff?.length || 0) || currentText.length > 4000 || current.length < numbered.length) truncated = true;
+        if (diff.length < savedDiff.length
+            || (!diffOnly && (currentText.length > 4000 || current.length < numbered.length))) truncated = true;
         files.push({ path: change.path, status: change.status, diff, current,
             current_line_count: currentText ? currentText.split(/\r?\n/).length : 0 });
     }
@@ -39,9 +73,13 @@ export function customAnalysisContext(model) {
         coverage_available: Boolean(model.coverage?.available),
         files,
         evidence_limits: {
-            truncated: truncated || changes.length > 20,
-            scope: "Changed files from the saved review snapshot, not the entire repository",
-            max_source_characters: 40_000,
+            truncated: truncated || changes.length > maxFiles,
+            scope: diffOnly
+                ? "Unified diffs for changed files; unchanged code outside the diff context is not included"
+                : "Changed files from the saved review snapshot, not the entire repository",
+            max_source_characters: maxSourceCharacters,
+            max_files: maxFiles,
+            omitted_files: Math.max(0, changes.length - maxFiles),
         },
     };
 }
@@ -57,6 +95,7 @@ export function buildCustomAnalysisPrompt(prompt, context) {
         "Keep the response under 250 words. Cite concrete `path:line` locations for code claims.",
         "Use exact repository-relative file paths from the evidence; never shorten them to basenames or use approximate line numbers.",
         "Current source excerpts are prefixed with their actual 1-based line numbers.",
+        "Files may instead supply unified diffs: use the @@ hunk headers to locate added and context lines in the current file; removed lines belong to the base. Empty current text in diff-only evidence is intentional, not a missing diff.",
         "Findings: at most 3 actionable problems or clearly labeled possible risks, with an evidenced failure scenario. Do not inventory correct code or speculate about unrelated possibilities.",
         "A hypothetical missing guard is not a confirmed defect. When omitted callers or validators are needed to assess safety, report an evidence gap under Verification, not a finding.",
         "Correct defensive checks are not defects. Do not invent approximate line numbers in prose; omit the line when exact evidence is unavailable.",

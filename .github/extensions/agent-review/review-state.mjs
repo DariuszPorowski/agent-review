@@ -19,7 +19,7 @@ import { spawnOwnedAnalyzer } from "./ownership-guard.mjs";
 import { fingerprintWorktree } from "./worktree-changes.mjs";
 import { callablesForSubject, decisionPromptContext } from "./web/decision-map.mjs";
 import { exportSnapshot, mapExecutedPaths } from "./test-run.mjs";
-import { repositoryRuleSources, RULES_PROMPT, ruleCheckContext } from "./review-contracts.mjs";
+import { repositoryRuleSources, RULES_PROMPT, RULE_EVIDENCE_OPTIONS, ruleCheckContext } from "./review-contracts.mjs";
 import { buildCodePathRequests, mergeCodePathMaps, reviewAdapter, sourceAdapter, testAdapterForMap } from "./language-adapters.mjs";
 import { isTestPath } from "./web/languages.mjs";
 import { pythonCandidates } from "./python-runtime.mjs";
@@ -931,7 +931,7 @@ export class ReviewState {
         this.broadcast("rule-check");
         let outcome;
         try {
-            const context = ruleCheckContext(customAnalysisContext(model), sources);
+            const context = ruleCheckContext(customAnalysisContext(model, RULE_EVIDENCE_OPTIONS), sources, model.source_files);
             const prompt = { id: "repository-rules", scope: "builtin", title: "Repository rules", prompt: RULES_PROMPT };
             const content = validateCustomAnalysis(await withTimeout(this.generateCustomAnalysis({ prompt, context }),
                 this.customAnalysisTimeoutMs, "The repository rules check timed out. Run it again."), context);
