@@ -6,6 +6,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildDistribution, extensionPath } from "../../../../scripts/build-distribution.mjs";
 
+test("source installs disable executable symlinks rejected by project extension acceptance", async () => {
+    const config = await readFile(new URL("../.npmrc", import.meta.url), "utf8");
+    assert.match(config, /^bin-links=false$/m);
+});
+
 async function fixture(t) {
     const root = await mkdtemp(join(tmpdir(), "agent-review-package-test-"));
     t.after(() => rm(root, { recursive: true, force: true }));
@@ -14,7 +19,7 @@ async function fixture(t) {
         await mkdir(dirname(path), { recursive: true });
         await writeFile(path, content);
     };
-    for (const name of ["extension.mjs", "copilot-extension.json", "package.json", "package-lock.json",
+    for (const name of ["extension.mjs", "managed-copilot.mjs", "copilot-extension.json", "package.json", "package-lock.json",
         "analyzer/analyze.py", "web/app.js", "tests/fixture.py", "analyzer/__pycache__/cached.pyc",
         "dotnet-analyzer/Program.cs", "dotnet-analyzer/AgentReview.DotnetAnalyzer.csproj",
         "dotnet-analyzer/bin/stale.dll", "dotnet-analyzer/obj/stale.json", "node_modules/stale.js"]) {
@@ -48,7 +53,7 @@ test("distribution includes runtime assets, notices, locked tooling, and managed
     const { source, output, run, calls } = await fixture(t);
     const extension = await buildDistribution({ sourceRoot: source, outputRoot: output, run, sourceRevision: "abc123" });
     assert.equal(extension, join(output, extensionPath));
-    for (const name of ["extension.mjs", "LICENSE", "analyzer/analyze.py", "web/app.js",
+    for (const name of ["extension.mjs", "managed-copilot.mjs", "LICENSE", "analyzer/analyze.py", "web/app.js",
         "node_modules/typescript/lib/typescript.js", "dotnet-analyzer/ThirdPartyNotices.txt",
         "dotnet-analyzer/bin/Release/net10.0/AgentReview.Dotnet.dll"]) {
         await access(join(extension, ...name.split("/")));

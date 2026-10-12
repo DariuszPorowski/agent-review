@@ -3,6 +3,32 @@ import test from "node:test";
 
 import { ReviewState } from "../review-state.mjs";
 import { buildAnnotationPrompt } from "../ai-prompts.mjs";
+import { managedCopilotPath } from "../managed-copilot.mjs";
+
+test("missing managed CLI reports a history error without discarding analysis or current context", async () => {
+    const state = new ReviewState("C:\\repo", {
+        currentSessionId: "current-session",
+        getSessionEvents: async () => [{
+            id: "request", type: "user.message", timestamp: "2026-10-11T10:00:00Z",
+            data: { content: "Add a retry limit." },
+        }],
+        getHistoricalSessionContexts: () => managedCopilotPath({
+            platform: "win32", execPath: "C:\\node.exe", env: {},
+        }),
+    });
+    const model = { changes: [{ path: "src/feature.py", status: "modified" }] };
+    state.model = model;
+    await state.refreshSessionContext(false);
+    await state.historicalContextPromise;
+    assert.equal(state.model, model);
+    assert.equal(state.sessionContext.historical_search_complete, true);
+    assert.equal(state.sessionContext.turns[0].prompt, "Add a retry limit.");
+    assert.equal(state.sessionHistories.get("current-session").turns.length, 1);
+    const status = state.attributionStatusForPath("unmatched.py");
+    assert.equal(status.status, "error");
+    assert.match(status.message, /Unable to read historical sessions:.*LOCALAPPDATA/);
+    assert.match(status.message, /Update or restart the GitHub app/);
+});
 
 test("historical session search times out instead of remaining in loading state", async () => {
     const state = new ReviewState("C:\\repo", {

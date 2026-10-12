@@ -1,16 +1,17 @@
-import { readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
-import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
 import { CopilotClient, RuntimeConnection } from "@github/copilot-sdk";
 
 import { buildSessionContext, isInternalAgentReviewPrompt } from "./session-context.mjs";
+import { managedCopilotPath } from "./managed-copilot.mjs";
 import {
     normalizedPath,
     repositoryRemotes,
     sessionMatchesRepositoryOrRemote,
 } from "./repository-session-match.mjs";
+
+export { managedCopilotPath } from "./managed-copilot.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,18 +29,6 @@ function isUsefulSession(metadata, currentSessionId) {
     if (directory.endsWith("/canvas-catalog-probe")) return false;
     if (isInternalAgentReviewPrompt(metadata.summary)) return false;
     return true;
-}
-
-export async function managedCopilotPath() {
-    if (basename(process.execPath).toLowerCase() === "copilot.exe") return process.execPath;
-    const root = join(process.env.LOCALAPPDATA || "", "github-copilot-sdk", "cli");
-    const versions = await readdir(root, { withFileTypes: true });
-    const candidates = versions
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-    if (!candidates.length) throw new Error(`No app-managed Copilot CLI was found under ${root}.`);
-    return join(root, candidates[0], "copilot.exe");
 }
 
 async function repositoryWorktreeRoots(repoRoot) {

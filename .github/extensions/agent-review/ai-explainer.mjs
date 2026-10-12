@@ -1,6 +1,6 @@
 import { CopilotClient, RuntimeConnection } from "@github/copilot-sdk";
 
-import { managedCopilotPath } from "./historical-sessions.mjs";
+import { managedCopilotPath } from "./managed-copilot.mjs";
 import {
     ExplanationValidationError,
     selectedModelFromEvents,
