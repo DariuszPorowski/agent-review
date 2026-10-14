@@ -122,6 +122,18 @@ verifiable, citing rule and code lines. Select a rule file to open it with every
 cited section highlighted. Rule files are treated as evidence,
 never as instructions to the reviewer.
 
+The rules check includes saved unified diffs for up to 100 changed files,
+within a 300,000-character budget, instead of duplicating each diff with the
+beginning of its source file. Small diffs are kept complete where possible;
+larger diffs share the remaining space so one large file cannot crowd out
+the other selected changes. Changes with no saved textual diff are explicitly
+marked as unavailable. Directly referenced documents, such as a linked
+skill or test plan, contribute up to another 100,000 characters from the same
+saved snapshot. These larger requests can take longer and cost more than a
+brief summary. Truncated evidence remains explicit; this check does not run
+tests or verify code outside its supplied evidence. Summaries and custom
+checks retain their smaller evidence budgets.
+
 ### Review dependency decisions
 
 Added, changed, and removed Python, npm, NuGet, Go module, and Cargo dependencies link to manifest

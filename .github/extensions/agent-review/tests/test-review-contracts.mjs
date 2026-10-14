@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { globToRegExp, repositoryRuleSources, ruleCheckContext, RULES_PROMPT, splitGlobs } from "../review-contracts.mjs";
+import { globToRegExp, repositoryRuleSources, ruleCheckContext, RULES_PROMPT, RULE_EVIDENCE_OPTIONS, splitGlobs } from "../review-contracts.mjs";
 import { ReviewState } from "../review-state.mjs";
 import { customAnalysisContext, validateCustomAnalysis } from "../custom-analysis.mjs";
 
@@ -96,6 +96,9 @@ test("the built-in rule check runs once per review, is skipped without rules, an
     assert.equal(result.status, "complete", result.error);
     assert.equal(received.prompt.scope, "builtin");
     assert.deepEqual(received.context.repository_rules.map((source) => source.path), ["AGENTS.md"]);
+    assert.equal(received.context.evidence_limits.max_source_characters, RULE_EVIDENCE_OPTIONS.maxSourceCharacters);
+    assert.equal(received.context.files.find((file) => file.path === "src/a.py").diff, "+x");
+    assert.equal(received.context.files.find((file) => file.path === "src/a.py").current, "");
     assert.deepEqual(state.snapshot().rule_check.sources, [{ path: "AGENTS.md", kind: "agent instructions", applies_to: ["src/a.py"],
         applicable_count: 1, truncated: false, changed_in_review: false }]);
     await state.runRuleCheck();
@@ -114,4 +117,42 @@ test("the built-in rule check runs once per review, is skipped without rules, an
     finish("## Findings\n\nNo supported findings.\n\n## Verification\n\n- Done.");
     await pending;
     assert.equal(slow.ruleCheck.status, "running", "a result for a replaced review is discarded");
+});
+
+test("rules include directly linked documents from the saved snapshot with exact line numbers", () => {
+    const reviewed = model({
+        ".github/instructions/quality.instructions.md": "---\napplyTo: '**/*.ts'\n---\nUse [quality](../skills/quality/SKILL.md). Read `docs/test-plan.md`.\n",
+        ".github/skills/quality/SKILL.md": "Check boundaries.\nRequire meaningful assertions.\n",
+        "docs/test-plan.md": "Test the production seam.\n",
+        "src/app.ts": "export const value = 1;\n",
+    }, ["src/app.ts", "docs/test-plan.md"]);
+    const sources = repositoryRuleSources(reviewed);
+    const context = ruleCheckContext(customAnalysisContext(reviewed, RULE_EVIDENCE_OPTIONS), sources, reviewed.source_files);
+    assert.equal(context.files.find((file) => file.path === ".github/skills/quality/SKILL.md").current,
+        "1: Check boundaries.\n2: Require meaningful assertions.\n3: ");
+    assert.equal(context.files.find((file) => file.path === "docs/test-plan.md").current,
+        "1: Test the production seam.\n2: ");
+    assert.equal(context.files.filter((file) => file.path === "docs/test-plan.md").length, 1);
+    assert.equal(context.evidence_limits.references_truncated, false);
+    assert.ok(validateCustomAnalysis("## Findings\n\nNo supported findings.\n\n## Verification\n\n- Satisfied: `.github/skills/quality/SKILL.md:2`.", context));
+});
+
+test("referenced documents are bounded, retain available evidence, and never resolve outside the snapshot", () => {
+    const reviewed = model({
+        "AGENTS.md": "See `docs/huge.md`, `docs/next.md`, and `../outside.md`.",
+        "docs/huge.md": "x".repeat(120_000),
+        "docs/next.md": "existing evidence",
+        "../outside.md": "Do not include this",
+        "src/a.py": "x",
+    }, ["src/a.py"]);
+    const base = customAnalysisContext(reviewed);
+    base.files.push({ path: "docs/next.md", current: "1: existing evidence", current_line_count: 1 });
+    const context = ruleCheckContext(base, repositoryRuleSources(reviewed), reviewed.source_files);
+    const huge = context.files.find((file) => file.path === "docs/huge.md");
+    assert.equal(huge.current.length, 100_000);
+    assert.equal(huge.current_truncated, true);
+    assert.equal(context.files.find((file) => file.path === "docs/next.md").current, "1: existing evidence");
+    assert.equal(context.files.some((file) => file.path === "../outside.md"), false);
+    assert.equal(context.evidence_limits.references_truncated, true);
+    assert.equal(context.evidence_limits.truncated, true);
 });

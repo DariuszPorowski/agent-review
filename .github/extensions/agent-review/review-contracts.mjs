@@ -1,8 +1,17 @@
 // Repository review contracts: instruction files that apply to a change's paths.
+import { posix } from "node:path";
+
 const AGENT_FILES = new Set(["agents.md", "claude.md", "gemini.md"]);
 const MAX_SOURCES = 8;
 const MAX_SOURCE_CHARACTERS = 12_000;
 const MAX_TOTAL_CHARACTERS = 30_000;
+const MAX_REFERENCE_CHARACTERS = 100_000;
+
+export const RULE_EVIDENCE_OPTIONS = Object.freeze({
+    maxSourceCharacters: 300_000,
+    maxFiles: 100,
+    diffOnly: true,
+});
 
 export function globToRegExp(glob) {
     let pattern = "";
@@ -103,7 +112,7 @@ export const RULES_PROMPT = [
     "Verification: for each remaining applicable rule, say Satisfied with evidence or Not verifiable and name the missing evidence, for example callers outside the supplied files.",
 ].join(" ");
 
-export function ruleCheckContext(baseContext, sources) {
+export function ruleCheckContext(baseContext, sources, savedFiles = {}) {
     const files = baseContext.files.map((file) => ({ ...file }));
     for (const source of sources) {
         // Number rule lines as they appear in the real file so citations open the right line.
@@ -119,14 +128,53 @@ export function ruleCheckContext(baseContext, sources) {
         }
     }
     const mentioned = new Set();
+    const references = new Set();
     for (const source of sources) {
         for (const match of source.text.matchAll(/(?:[A-Za-z0-9_.-]+\/)*(?:Cargo\.lock|[A-Za-z0-9_.-]+\.(?:csproj|cs|slnx?|props|targets|py|go|rs|mod|sum|toml|txt|json|ya?ml|md|[cm]?[jt]sx?|css|html))\b/g)) {
-            mentioned.add(match[0].replace(/^\.\//, ""));
+            const reference = match[0].replace(/^\.\//, "");
+            mentioned.add(reference);
+            const path = savedFiles[reference] ? reference : posix.normalize(posix.join(posix.dirname(source.path), reference));
+            if (!path.startsWith("../") && !posix.isAbsolute(path) && savedFiles[path]) {
+                references.add(path);
+                mentioned.add(path);
+            }
+        }
+    }
+    let remaining = MAX_REFERENCE_CHARACTERS;
+    let referencesTruncated = false;
+    for (const path of references) {
+        if (sources.some((source) => source.path === path)) continue;
+        const saved = savedFiles[path];
+        if (saved.binary || typeof saved.current !== "string") continue;
+        const lines = saved.current.split(/\r?\n/);
+        const numbered = lines.map((line, index) => `${index + 1}: ${line}`).join("\n");
+        const current = numbered.slice(0, remaining);
+        remaining -= current.length;
+        if (current.length < numbered.length) referencesTruncated = true;
+        const evidence = {
+            path, current, current_line_count: lines.length,
+            current_truncated: current.length < numbered.length,
+            ...(!current && numbered ? { unavailable: "Referenced document budget exhausted" } : {}),
+        };
+        const existing = files.find((file) => file.path === path);
+        if (existing) {
+            if (current.length > (existing.current?.length || 0)) {
+                Object.assign(existing, evidence);
+                delete existing.unavailable;
+            }
+        } else {
+            files.push({ ...evidence, status: "referenced rule evidence" });
         }
     }
     return {
         ...baseContext,
         files,
+        evidence_limits: {
+            ...baseContext.evidence_limits,
+            truncated: Boolean(baseContext.evidence_limits?.truncated || referencesTruncated),
+            max_reference_characters: MAX_REFERENCE_CHARACTERS,
+            references_truncated: referencesTruncated,
+        },
         allowed_mentions: [...mentioned].slice(0, 200),
         repository_rules: sources.map(({ path, kind, applies_to: applies, truncated }) => ({
             path, kind, applies_to: applies.slice(0, 20), omitted_applicable_files: Math.max(0, applies.length - 20), truncated })),
