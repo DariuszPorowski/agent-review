@@ -24,6 +24,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  cli-discovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+      - name: Check app-managed Copilot discovery
+        run: >-
+          node --test
+          .github/extensions/agent-review/tests/test-managed-copilot.mjs
+          .github/extensions/agent-review/tests/test-historical-sessions.mjs
+          .github/extensions/agent-review/tests/test-ai-explainer.mjs
+          .github/extensions/agent-review/tests/test-review-state.mjs
+
   build:
     strategy:
       fail-fast: false
@@ -62,7 +84,7 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: build
+    needs: [build, cli-discovery]
     if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 5

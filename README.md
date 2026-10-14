@@ -160,6 +160,24 @@ On Windows, the extension uses `py -3` to select an installed Python 3 runtime;
 Python 3.11 specifically is not required when a newer supported version is installed.
 Set `AGENT_REVIEW_PYTHON` to a Python 3.11+ executable path to override discovery.
 
+### Copilot discovery and troubleshooting
+
+Historical conversation lookup and AI explanations use the running Copilot
+executable when available. Otherwise, Agent Review searches the GitHub app's
+managed CLI cache: `~/Library/Caches/github-copilot-sdk/cli` on macOS or
+`%LOCALAPPDATA%/github-copilot-sdk/cli` on Windows. It selects the newest usable
+installed version, skipping incomplete installations. On other platforms,
+it requires the extension to be running under the Copilot executable.
+It does not search PATH for a separate Copilot installation or install a CLI.
+
+If the app-managed CLI is missing, update or restart the GitHub app and retry.
+The error identifies the searched locations; if it reports denied access or
+a non-executable file, check permissions on that installation.
+Code analysis and current-session context remain available when historical
+lookup fails. After a fixed extension release is published, update the
+distribution loader as described below; existing loaders stay pinned to
+their original release.
+
 ### Install
 
 **Recommended: import the distribution loader** from this repository URL
@@ -222,8 +240,12 @@ For development or when the distribution is not yet available:
    TypeScript tooling:
 
    ```powershell
-   npm ci --ignore-scripts
+   npm ci --ignore-scripts --bin-links=false
    ```
+
+The included `.npmrc` also disables executable links. Project extensions reject
+symbolic links, and Agent Review imports TypeScript directly without needing
+the `tsc` or `tsserver` command launchers.
 
 This installs extension tooling only. Go analysis uses no additional package.
 Analysis never automatically installs
