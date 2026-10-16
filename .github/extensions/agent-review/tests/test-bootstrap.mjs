@@ -3,11 +3,12 @@ import { createHash } from "node:crypto";
 import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { ensureBundle, extractBundle, runPython, validateRelease } from "../../../../scripts/bootstrap/runtime.mjs";
 import { startSetupServer } from "../../../../scripts/bootstrap/setup-server.mjs";
 import { buildBootstrap } from "../../../../scripts/build-release-distribution.mjs";
+import { canvasDefinition } from "../canvas-definition.mjs";
 
 const source = dirname(dirname(fileURLToPath(import.meta.url)));
 const commit = "a".repeat(40);
@@ -52,6 +53,9 @@ test("loader fits import limits and pins the release checksum and commit", async
     }
     assert(bytes < 5_000_000);
     assert.deepEqual(JSON.parse(await readFile(join(extension, "release-manifest.json"), "utf8")), descriptor);
+    const { canvasDefinition: loaderCanvas } = await import(pathToFileURL(join(extension, "canvas-definition.mjs")).href);
+    assert.deepEqual(loaderCanvas, canvasDefinition);
+    assert.deepEqual(loaderCanvas.inputSchema.type, ["object", "null"]);
 });
 
 test("first use verifies and extracts once; subsequent use works without network access", async (t) => {

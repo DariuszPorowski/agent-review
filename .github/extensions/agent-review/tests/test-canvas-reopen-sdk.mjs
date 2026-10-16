@@ -3,7 +3,7 @@ import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { cp, mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -64,6 +64,16 @@ test("SDK closes and reopens the same Canvas, reloads its provider, and preserve
         if (canvas) break;
     }
     assert.ok(canvas, JSON.stringify(canvases));
+    for (const [name, input] of [["null", null], ["omitted", undefined], ["empty", {}]]) {
+        const opened = await session.rpc.canvas.open({ canvasId: canvas.canvasId, extensionId: canvas.extensionId,
+            instanceId: `menu-${name}`, ...(input === undefined ? {} : { input }) });
+        const response = await fetch(`${opened.url}api/state`);
+        assert.equal(response.status, 200);
+        const state = await response.json();
+        assert.equal(resolve(state.repo_root), resolve(repo));
+        assert.equal(state.review_target.mode, "none", "opening must not start analysis");
+        await session.rpc.canvas.close({ instanceId: opened.instanceId });
+    }
     const input = { repoPath: repo, baseRef: "HEAD" };
     const request = { canvasId: canvas.canvasId, extensionId: canvas.extensionId, instanceId: "reopen-test", input };
     const first = await session.rpc.canvas.open(request);
@@ -80,17 +90,18 @@ test("SDK closes and reopens the same Canvas, reloads its provider, and preserve
             const response = await fetch(`${second.url}api/state`);
             if (response.ok) {
                 recovered = await response.json();
-                if (recovered.model && !recovered.loading) break;
                 if (recovered.error) assert.fail(recovered.error);
+                if (!recovered.loading) break;
             }
         } catch (error) {
             if (!(error instanceof TypeError)) throw error;
         }
         await sleep(200);
     }
-    assert.ok(recovered?.model && !recovered.loading, "provider reload must reclaim the existing Canvas URL");
-    assert.equal(recovered.model.summary.files_changed, 1);
-    assert.match(recovered.model.source_files["main.py"].current, /return 2/);
+    assert.ok(recovered && !recovered.loading, "provider reload must reclaim the existing Canvas URL");
+    assert.equal(resolve(recovered.repo_root), resolve(repo));
+    assert.equal(recovered.review_target.mode, "none");
+    assert.equal(recovered.model, null, "provider reload must not start analysis");
     assert.equal(await readFile(join(repo, "main.py"), "utf8"), modified);
     assert.match((await git("status", "--short", "--", "main.py")).stdout, / M main\.py/);
     await session.rpc.canvas.close({ instanceId: second.instanceId });
