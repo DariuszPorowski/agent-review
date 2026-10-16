@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "analyzer"))
 
 from go_adapter import GO_ADAPTER
 from go_coverage import load_go_coverage
+from go_graph import analyze_go
 from go_packages import go_package_diff, parse_go_packages
 from language_adapters import AnalysisSnapshot, active_adapters
 from review_model import ReviewModel
@@ -41,6 +42,67 @@ class GoPackageTests(unittest.TestCase):
 
 
 class GoAdapterTests(unittest.TestCase):
+    def test_identical_snapshots_preserve_complexity_and_signature_baselines(self):
+        body = b" if x > 0 { x-- }\n" * 7 + b" return x\n"
+        source = (b"package demo\ntype Value struct{}\nfunc Evaluate(x int) int {\n" + body
+                  + b"}\nfunc (v Value) Run(x int) int {\n" + body + b"}\n")
+        files = {"value.go": source}
+        model = ReviewModel({})
+        analyze_go(files, files, model, set())
+        payload = model.to_dict()
+        callables = [node for node in payload["nodes"] if node["type"] in ("function", "method")]
+        self.assertEqual({"function", "method"}, {node["type"] for node in callables})
+        for node in callables:
+            with self.subTest(name=node["name"]):
+                self.assertEqual("unchanged", node["change"])
+                self.assertEqual(0, node["metrics"]["lines_changed"])
+                self.assertEqual(8, node["metrics"]["complexity_base"])
+                self.assertEqual(8, node["metrics"]["complexity_current"])
+                self.assertIsNotNone(node["signatures"]["base"])
+                self.assertEqual(node["signatures"]["base"], node["signatures"]["current"])
+                self.assertEqual(node["signatures"]["base"], node["metrics"]["signature_base"])
+        self.assertEqual([], payload["attention"])
+
+    def test_body_and_signature_changes_compare_actual_baselines(self):
+        before = b"package demo\nfunc Run(x int) int { return x }\n"
+        for after, signature_changed in (
+            (b"package demo\nfunc Run(x int) int { if x > 0 { return x }; return 0 }\n", False),
+            (b"package demo\nfunc Run(x int64) int64 { if x > 0 { return x }; return 0 }\n", True),
+        ):
+            with self.subTest(signature_changed=signature_changed):
+                model = ReviewModel({})
+                analyze_go({"value.go": before}, {"value.go": after}, model, set())
+                payload = model.to_dict()
+                run = next(node for node in payload["nodes"] if node["name"] == "Run")
+                self.assertEqual("modified", run["change"])
+                self.assertEqual(1, run["metrics"]["complexity_base"])
+                self.assertEqual(2, run["metrics"]["complexity_current"])
+                self.assertEqual("Run(x int) int", run["signatures"]["base"])
+                self.assertEqual("Run(x int64) int64" if signature_changed else "Run(x int) int",
+                                 run["signatures"]["current"])
+                findings = {item["type"] for item in payload["attention"]}
+                self.assertEqual({"complexity", "signature"} if signature_changed else {"complexity"},
+                                 findings)
+
+    def test_new_complexity_requires_added_node_and_threshold(self):
+        for change in ("unchanged", "modified", "removed", "added"):
+            for complexity in (7, 8, 9):
+                with self.subTest(change=change, complexity=complexity):
+                    model = ReviewModel({})
+                    source = (b"package demo\nfunc Run(x int) int {\n"
+                              + b" if x > 0 { x-- }\n" * (complexity - 1) + b" return x\n}\n")
+                    analyze_go({}, {"value.go": source}, model, set())
+                    symbol = model.symbols[0]
+                    symbol["classification"] = change
+                    symbol["complexity_base"] = None
+                    payload = model.to_dict()
+                    expected = change == "added" and complexity >= 8
+                    findings = [item for item in payload["attention"] if item["type"] == "new_complexity"]
+                    self.assertEqual(int(expected), len(findings))
+                    evidence = [item for item in payload["evidence"].values()
+                                if item.get("detail", "").startswith("New callable complexity")]
+                    self.assertEqual(int(expected), len(evidence))
+
     def test_activation_graph_usage_metrics_and_mixed_language(self):
         before = {
             "go.mod": b"module example.com/demo\nrequire example.com/lib v1.0.0\n",

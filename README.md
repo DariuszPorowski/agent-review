@@ -387,6 +387,8 @@ saved declaration or exact declared module prefix is available. Build tags,
 generated files, cgo, reflection, interface dispatch, promoted methods, generic
 type inference, and dynamic registration can make relationships incomplete.
 
+Go complexity and signature findings compare the saved baseline and current declarations. "Complex new callable added" applies only to added callables with cyclomatic complexity of at least 8; documentation-only changes do not make existing callables new.
+
 `go.mod` `require`, `replace`, and `exclude` directives are compared with exact
 semantic/pseudo-versions. Matching saved `go.sum` rows provide checksum
 evidence; a missing checksum is reported and never treated as verified content.

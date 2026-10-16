@@ -548,7 +548,8 @@ class ReviewModel:
                                    "detail": f"{metrics['complexity_base']} -> {metrics['complexity_current']}"}
                 )
             elif (
-                metrics["complexity_base"] is None
+                node["change"] == "added"
+                and metrics["complexity_base"] is None
                 and metrics["complexity_current"] is not None
                 and metrics["complexity_current"] >= 8
             ):

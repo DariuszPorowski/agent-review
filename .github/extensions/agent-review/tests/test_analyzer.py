@@ -201,6 +201,33 @@ class AnalyzerTests(unittest.TestCase):
         )
         return json.loads(process.stdout)
 
+    def test_documentation_only_change_does_not_report_existing_complex_go_callables(self) -> None:
+        body = " if x > 0 { x-- }\n" * 7 + " return x\n"
+        self.write("value.go", "package demo\ntype Value struct{}\nfunc Evaluate(x int) int {\n"
+                   + body + "}\nfunc (v Value) Run(x int) int {\n" + body + "}\n")
+        self.write("README.md", "Before\n")
+        base = self.commit()
+        self.write("README.md", "After\n")
+        head = self.commit()
+        payload = self.analyze(base)
+        self.assertEqual(base, payload["metadata"]["base_sha"])
+        self.assertEqual(head, payload["metadata"]["head_sha"])
+        self.assertEqual(1, payload["summary"]["files_changed"])
+        self.assertEqual(1, payload["summary"]["lines_added"])
+        self.assertEqual(1, payload["summary"]["lines_removed"])
+        self.assertEqual(["README.md"], [item["path"] for item in payload["changes"]
+                                        if item["status"] != "unchanged"])
+        self.assertEqual(0, payload["summary"]["symbols_changed"])
+        callables = [node for node in payload["nodes"] if node["type"] in ("function", "method")]
+        self.assertEqual(2, len(callables))
+        for node in callables:
+            self.assertEqual("unchanged", node["change"])
+            self.assertEqual(0, node["metrics"]["lines_changed"])
+            self.assertEqual(8, node["metrics"]["complexity_base"])
+            self.assertEqual(8, node["metrics"]["complexity_current"])
+            self.assertEqual(node["signatures"]["base"], node["signatures"]["current"])
+        self.assertEqual([], payload["attention"])
+
     def test_symbols_calls_inheritance_complexity_and_aggregate_edges(self) -> None:
         self.write("lib/util.py", "def helper(value):\n    return value\n\nclass Base:\n    pass\n")
         self.write("app/main.py", "def removed():\n    return 1\n")
