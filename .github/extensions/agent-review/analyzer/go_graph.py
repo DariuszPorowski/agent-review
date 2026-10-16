@@ -291,9 +291,9 @@ def analyze_go(baseline_files: dict[str, bytes], current_files: dict[str, bytes]
         raw["classification"] = ("added" if before is None else "removed" if after is None else
                                  "unchanged" if before["normalized_ast_hash"] == after["normalized_ast_hash"]
                                  else "modified")
-        raw["signature_baseline"] = before.get("signature") if before else None
+        raw["signature_base"] = before.get("signature") if before else None
         raw["signature_current"] = after.get("signature") if after else None
-        raw["complexity_baseline"] = before.get("complexity") if before else None
+        raw["complexity_base"] = before.get("complexity") if before else None
         raw["complexity_current"] = after.get("complexity") if after else None
         model.symbols.append(raw)
     for symbol in model.symbols:
