@@ -277,7 +277,7 @@ palette for development and screenshot checks.
 
 1. Start a Copilot session in the repository to review. If the session was
    already open when you installed Agent Review, reload extensions first.
-2. Ask Copilot:
+2. Choose **+ > Canvas > Agent Review** to open it for the session's repository without a chat prompt. You can also ask Copilot:
 
    > Open the Agent Review canvas for this session's existing repository.
 
