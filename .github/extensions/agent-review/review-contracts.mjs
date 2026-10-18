@@ -63,7 +63,7 @@ export function splitGlobs(value) {
 }
 
 // Rule files are read from the reviewed snapshot, so a commit is judged by the rules it shipped with.
-export function repositoryRuleSources(model) {
+export function repositoryRuleSources(model, { bounded = true } = {}) {
     const changed = (model?.changes || []).filter((change) => change.status !== "unchanged").map((change) => change.path);
     if (!changed.length) return [];
     const sources = [];
@@ -96,6 +96,7 @@ export function repositoryRuleSources(model) {
     }
     // Nearest scope first: deeper directories carry the most specific rules.
     sources.sort((a, b) => b.path.split("/").length - a.path.split("/").length || a.path.localeCompare(b.path));
+    if (!bounded) return sources.map((source) => ({ ...source, truncated: false }));
     let budget = MAX_TOTAL_CHARACTERS;
     return sources.slice(0, MAX_SOURCES).map((source) => {
         const text = source.text.slice(0, Math.max(0, Math.min(MAX_SOURCE_CHARACTERS, budget)));
@@ -111,6 +112,26 @@ export const RULES_PROMPT = [
     "Findings: rules the change appears to violate or leave at risk, citing both the rule (`AGENTS.md:line`) and the code (`path:line`).",
     "Verification: for each remaining applicable rule, say Satisfied with evidence or Not verifiable and name the missing evidence, for example callers outside the supplied files.",
 ].join(" ");
+
+export function repositoryRuleReferences(sources, savedFiles) {
+    const references = new Map();
+    for (const source of sources) {
+        const links = [...source.text.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)];
+        const add = (reference, relative) => {
+            reference = reference.split("#")[0];
+            if (!reference || /^[A-Za-z][\w+.-]*:/.test(reference) || reference.startsWith("//")) return;
+            const path = relative || !savedFiles[reference]
+                ? posix.normalize(posix.join(posix.dirname(source.path), reference)) : reference;
+            if (path === ".." || path.startsWith("../") || posix.isAbsolute(path) || path.includes("\\")) return;
+            references.set(`${source.path}:${path}`, { from: source.path, path });
+        };
+        for (const link of links) add(link[1], true);
+        for (const match of source.text.matchAll(/(?:[A-Za-z0-9_.-]+\/)*(?:Cargo\.lock|[A-Za-z0-9_.-]+\.(?:csproj|cs|slnx?|props|targets|py|go|rs|mod|sum|toml|txt|json|ya?ml|md|[cm]?[jt]sx?|css|html))\b/g)) {
+            if (!links.some((link) => match.index >= link.index && match.index < link.index + link[0].length)) add(match[0], false);
+        }
+    }
+    return [...references.values()];
+}
 
 export function ruleCheckContext(baseContext, sources, savedFiles = {}) {
     const files = baseContext.files.map((file) => ({ ...file }));

@@ -718,6 +718,7 @@ marker path { fill: var(--cp-border-strong); }
   background: var(--cp-bg-elevated);
 }
 .code-lines { width: max-content; min-width: 100%; }
+.source-chunk { content-visibility: auto; contain-intrinsic-block-size: auto 2000px; }
 .code-row { display: grid; grid-template-columns: calc(var(--source-line-digits, 4) * 1ch + 8px) calc(var(--source-line-digits, 4) * 1ch + 8px) 16px minmax(max-content, 1fr); min-height: 20px; }
 .code-row > span, .code-row > code { padding: 1px 8px; white-space: pre; }
 .code-row > .line-number:first-child { grid-column: 1; padding-inline: 4px; }
@@ -1648,6 +1649,8 @@ h3 { font-size: 14px; font-weight: 600; }
 @media (max-width: 600px) { .change-brief .detail-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 420px) { .change-brief .detail-row { flex-direction: column; gap: 4px; align-items: flex-start; } }
 .change-brief .brief-origin { margin-top: 12px; max-height: 180px; overflow: auto; }
+.change-brief .brief-origin.rule-check { max-height: none; overflow: visible; }
+.rule-check .action-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .change-brief .brief-origin > summary { font-size: 12px; color: var(--cp-link); cursor: pointer; }
 .change-brief h3 { margin: 12px 0 6px; font-size: 14px; }
 .change-brief .annotation-body { font-size: 14px; }

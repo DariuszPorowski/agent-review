@@ -88,7 +88,12 @@ Open **Diff**, **Current**, or **Base** for the selected snapshot. Current and
 Base mark added, changed, and removed lines and show where the other side's
 lines were inserted or removed; a change ruler beside the scrollbar marks every
 change and cited line and jumps to it on click. In Diff, each unchanged region
-between changes can be expanded in place and collapsed again. Findings
+between changes can be expanded in place and collapsed again; gaps of fewer
+than five unchanged lines stay visible without a collapse control. Expanding
+or collapsing a gap updates only that region, keeping keyboard focus, scroll,
+and source highlights intact. Recent source views are reused when switching
+attention items; large files are constructed cooperatively and offscreen
+sections defer layout so navigation does not block on the whole file. Findings
 highlight relevant lines; references outside diff hunks show verified,
 explicitly labeled unchanged context. New source and diff views navigate to the
 selected finding or function. Compact gutters, clickable source links,
@@ -126,17 +131,52 @@ verifiable, citing rule and code lines. Select a rule file to open it with every
 cited section highlighted. Rule files are treated as evidence,
 never as instructions to the reviewer.
 
-The rules check includes saved unified diffs for up to 100 changed files,
-within a 300,000-character budget, instead of duplicating each diff with the
-beginning of its source file. Small diffs are kept complete where possible;
-larger diffs share the remaining space so one large file cannot crowd out
-the other selected changes. Changes with no saved textual diff are explicitly
-marked as unavailable. Directly referenced documents, such as a linked
-skill or test plan, contribute up to another 100,000 characters from the same
-saved snapshot. These larger requests can take longer and cost more than a
-brief summary. Truncated evidence remains explicit; this check does not run
-tests or verify code outside its supplied evidence. Summaries and custom
-checks retain their smaller evidence budgets.
+### Large changes and internal review passes
+
+Repository rules and approved custom checks use bounded internal analysis passes
+and produce one consolidated review, not one report per batch. All changed diff
+ranges and applicable instruction files are scheduled, including files beyond
+the former 20/100-file limits and later hunks of oversized diffs. Production code
+and existing attention signals receive priority; generated files, fixtures, and
+lockfile churn remain scheduled rather than disappearing from the review.
+
+Each pass records source-cited observations, candidate findings, completion
+receipts, and requests for additional context. The host retrieves requested
+ranges only from the saved current snapshot or immutable Git base. It never
+executes repository code, follows URLs, or substitutes the current worktree.
+Base/current evidence and exact supplied lines are validated independently.
+Oversized individual lines and unavailable source are explicit evidence gaps.
+
+Candidate findings receive a source-backed verification pass that can reject
+an earlier interpretation, identify duplicates, or leave a claim unresolved.
+Exact duplicates are removed deterministically; independent failures in the same
+file remain separate. Findings are ranked by severity, verification, and
+confidence. The default report shows eight; an expandable list preserves all
+findings and their source links. The change summary reuses accumulated review
+evidence when available and states its presentation and analysis limits.
+
+The UI distinguishes supplied evidence from completed analysis, shows changed
+file/evidence-unit progress, and exposes **Stop AI review** and **Continue review**.
+Partial results survive failed requests and budget limits. Successful passes are
+checkpointed in the Copilot session workspace; continuation reuses them only for
+matching snapshot content, rules, instruction, selected model, limits, and
+pipeline version. **Run again** on a custom check starts fresh.
+
+Default execution limits are 64 requests, 128 snapshot range retrievals, and
+10 minutes per check, with up to 120 seconds per request. Source excerpts and
+requests are bounded to 8,000 and 64,000 serialized UTF-8 bytes respectively;
+these are conservative payload limits, not measured token counts or a promise
+of model capacity or monetary cost. Collection reserves time for consolidation.
+Large reviews can require additional continuation runs and model usage.
+Completed analysis does not establish that every defect was found, and
+unresolved verification is never a satisfied rule.
+
+Repository source stays on the host instead of being repeated in browser state
+updates; opening source still retrieves the selected saved file. Large repetitive
+modified files use Git's native diff against temporary saved bytes, avoiding
+quadratic Python matching while retaining exact changed-line evidence.
+This does not yet replace the language analyzers with a persistent repository-wide
+semantic index; cold analysis of very large monorepos can still be expensive.
 
 ### Review dependency decisions
 
@@ -852,3 +892,24 @@ node --test .github\extensions\agent-review\tests\test-*.mjs
 [Browser regressions](.github/extensions/agent-review/tests/browser/) use an
 existing `playwright-core` installation (`AGENT_REVIEW_BROWSER_PACKAGE`) and Edge
 on Windows, or `AGENT_REVIEW_BROWSER_EXECUTABLE` for another browser.
+
+The large-change regression suite is
+`node --test .github\extensions\agent-review\tests\test-review-pipeline.mjs`.
+For a live Copilot validation, point `AGENT_REVIEW_LARGE_REPO` at a standalone
+repository with a baseline `main` and a `large-change` commit. Set
+`AGENT_REVIEW_SDK_MODULE` to the absolute SDK JavaScript entry point and
+`AGENT_REVIEW_VALIDATION_OUTPUT` to a separate results directory, then run
+`node .github\extensions\agent-review\tests\validate-large-review.mjs`.
+It checks full scheduling separately from real model findings and writes both
+results; its planted-regression assertions target the Parcel Flow validation
+project. `AGENT_REVIEW_VALIDATION_BUDGET_MS` optionally bounds the live check.
+To exercise those saved real results in the UI, set
+`AGENT_REVIEW_LARGE_RESULTS` to that results directory and run
+`node .github\extensions\agent-review\tests\browser\large-review.mjs`.
+The browser test uses a test provider only for its stop/continue interaction
+checks; the displayed findings come from the saved live review.
+With the same `AGENT_REVIEW_LARGE_RESULTS` and browser settings,
+`node .github\extensions\agent-review\tests\browser\large-source-performance.mjs`
+measures attention-item navigation and gap toggling against the real oversized
+source. It asserts bounded interaction latency, no source/side-panel replacement
+on gap toggles, retained focus and scroll, and rejection of stale source requests.

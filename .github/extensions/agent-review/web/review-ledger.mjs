@@ -18,6 +18,7 @@ function hashText(hash, text) {
 }
 
 export function reviewSnapshotKey(model, target) {
+    if (model?.review_snapshot_key) return model.review_snapshot_key;
     const meta = model?.metadata || {};
     let hash = 2166136261;
     const changes = [...(model?.changes || [])].sort((a, b) => a.path.localeCompare(b.path));

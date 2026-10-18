@@ -23,6 +23,7 @@ import { repositoryRuleSources, RULES_PROMPT, RULE_EVIDENCE_OPTIONS, ruleCheckCo
 import { buildCodePathRequests, mergeCodePathMaps, reviewAdapter, sourceAdapter, testAdapterForMap } from "./language-adapters.mjs";
 import { isTestPath } from "./web/languages.mjs";
 import { pythonCandidates } from "./python-runtime.mjs";
+import { runReview } from "./review-pipeline.mjs";
 
 const execFileAsync = promisify(execFile);
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -276,6 +277,7 @@ export class ReviewState {
         this.reviewGeneration = 0;
         this.reviewInstanceId = randomUUID();
         this.reviewCache = new Map();
+        this.sourceSnapshotCache = new WeakMap();
         this.lastAnalyzedAt = null;
         this.restoredFromCache = false;
         this.getSessionEvents = options.getSessionEvents || null;
@@ -285,6 +287,16 @@ export class ReviewState {
         this.generateAnnotation = options.generateAnnotation || null;
         this.generatePackageExplanation = options.generatePackageExplanation || null;
         this.generateCustomAnalysis = options.generateCustomAnalysis || null;
+        this.generateReviewPass = options.generateReviewPass || null;
+        this.createReviewRuntime = options.createReviewRuntime || null;
+        this.reviewModelId = options.reviewModelId || (() => null);
+        this.reviewDirectory = options.reviewDirectory || (this.workspacePath
+            ? join(this.workspacePath, "files", "agent-review-reviews") : null);
+        this.reviewLimits = options.reviewLimits || {};
+        this.reviewControllers = new Set();
+        this.reviewEvidence = null;
+        this.reviewEvidenceModel = null;
+        this.reviewEvidenceRevision = 0;
         this.customAnalysisTimeoutMs = options.customAnalysisTimeoutMs || 120_000;
         this.customPromptOptions = options.customPromptOptions || {};
         this.customAnalyses = {};
@@ -359,6 +371,7 @@ export class ReviewState {
                 throw new Error("The review changed while validating the repository. Try again.");
             }
             this.reviewGeneration += 1;
+            this.stopInternalReviews();
             this.worktreeCheckController?.abort();
             this.decisionController?.abort();
             this.stopTestRun();
@@ -372,6 +385,8 @@ export class ReviewState {
                 || (await loadReviewConfig(this.repoRoot)).base_ref || process.env.COPILOT_DEFAULT_BRANCH || null;
             this.reviewTarget = { mode: "none", label: "Choose review target", currentRef: null };
             this.model = null;
+            this.reviewEvidence = null;
+            this.reviewEvidenceModel = null;
             this.annotations = {};
             this.annotationPromises = new Map();
             this.generatedObservations = [];
@@ -486,6 +501,7 @@ export class ReviewState {
         const signal = run.controller.signal;
         const wait = (promise) => abortable(promise, signal);
         this.reviewGeneration += 1;
+        this.stopInternalReviews();
         this.annotationPromises = new Map();
         // A running extraction is for the review being replaced; never let it compete with the new scan.
         if (this.decisionMap?.status === "loading") {
@@ -587,6 +603,7 @@ export class ReviewState {
 
     // Keep the run promise until its ownership guard has confirmed process-tree exit.
     async cancel() {
+        this.stopInternalReviews();
         if (this.cancelPromise) return this.cancelPromise;
         this.cancelled = true;
         this.reviewGeneration += 1;
@@ -658,6 +675,7 @@ export class ReviewState {
         this.switchingTarget = true;
         try {
             const resolved = await resolveReviewTarget(this.repoRoot, input);
+            this.stopInternalReviews();
             this.saveCurrentReview();
             this.reviewTarget = resolved;
             this.selection = null;
@@ -670,6 +688,8 @@ export class ReviewState {
                 this.reviewGeneration += 1;
                 this.annotationPromises = new Map();
                 this.model = cached.model;
+                this.reviewEvidence = cached.reviewEvidence || null;
+                this.reviewEvidenceModel = cached.model;
                 this.annotations = cached.annotations;
                 this.decisionMap = cached.decisionMap;
                 this.decisionPromise = cached.decisionMap ? Promise.resolve(cached.decisionMap) : null;
@@ -718,7 +738,7 @@ export class ReviewState {
             annotations: this.annotations,
             decisionMap: this.decisionMap?.status === "complete" ? this.decisionMap : null,
             testRun: this.testRun?.status === "complete" ? this.testRun : null,
-            ruleCheck: ["complete", "none"].includes(this.ruleCheck?.status) ? this.ruleCheck : null,
+            ruleCheck: ["complete", "partial", "cancelled", "none"].includes(this.ruleCheck?.status) ? this.ruleCheck : null,
             packageRisks: this.packageRisks,
             packageAssessments: this.packageAssessments,
             generatedObservations: this.generatedObservations,
@@ -727,6 +747,7 @@ export class ReviewState {
             worktreeChanged: this.worktreeChanged,
             worktreeCheckError: this.worktreeCheckError,
             customAnalyses: this.customAnalyses,
+            reviewEvidence: this.reviewEvidenceModel === this.model ? this.reviewEvidence : null,
         });
     }
 
@@ -904,24 +925,70 @@ export class ReviewState {
     }
 
     // Built-in check: does the change satisfy the repository's own instruction files?
+    stopInternalReviews(scope = null) {
+        for (const controller of this.reviewControllers) {
+            if (scope && controller.reviewScope !== scope) continue;
+            controller.abort(new Error("Review cancelled or snapshot changed."));
+            this.reviewControllers.delete(controller);
+        }
+    }
+
+    async internalReview(instruction, { sources = [], onProgress, force = false, scope = "rules" } = {}) {
+        const controller = new AbortController();
+        controller.reviewScope = scope;
+        this.reviewControllers.add(controller);
+        const model = this.model;
+        const repoRoot = this.repoRoot;
+        let runtime;
+        try {
+            let modelId = await this.reviewModelId();
+            controller.signal.throwIfAborted();
+            runtime = await this.createReviewRuntime?.(modelId);
+            modelId = runtime?.modelId || modelId;
+            controller.signal.throwIfAborted();
+            const result = await runReview({ model, instruction, sources,
+                generate: (context, options) => this.generateReviewPass(context, { ...options, runtimeClient: runtime?.client, modelId }),
+                modelId, directory: this.reviewDirectory, limits: this.reviewLimits,
+                signal: controller.signal, onProgress, force,
+                intent: this.reviewTarget.intent || null,
+                readSource: async (path, side) => {
+                    if (side !== "base" || !model.metadata?.base_sha) return null;
+                    const sha = model.metadata.base_sha;
+                    if (!await git(repoRoot, ["ls-tree", "--name-only", sha, "--", path])) return null;
+                    return git(repoRoot, ["show", `${sha}:${path}`]);
+                } });
+            if (scope === "rules" && this.model === model && !this.disposed) {
+                this.reviewEvidence = result;
+                this.reviewEvidenceModel = model;
+                this.reviewEvidenceRevision++;
+                delete this.annotations.overview;
+                this.annotationPromises.delete("overview");
+            }
+            return result;
+        } finally {
+            this.reviewControllers.delete(controller);
+            await runtime?.dispose();
+        }
+    }
+
     async runRuleCheck({ force = false } = {}) {
         if (!this.model || this.loading || this.disposed) return this.ruleCheck;
         if (this.ruleCheck?.status === "running") return this.ruleCheckPromise;
         if (!force && ["complete", "none"].includes(this.ruleCheck?.status)) return this.ruleCheck;
-        this.ruleCheckPromise = this.performRuleCheck();
+        this.ruleCheckPromise = this.performRuleCheck(force);
         return this.ruleCheckPromise;
     }
 
-    async performRuleCheck() {
+    async performRuleCheck(force = false) {
         const model = this.model;
-        const sources = repositoryRuleSources(model);
+        const sources = repositoryRuleSources(model, { bounded: !this.generateReviewPass });
         const summary = sources.map(({ path, kind, applies_to: applies, truncated, changed_in_review: changed }) => ({
             path, kind, applies_to: applies.slice(0, 50), applicable_count: applies.length, truncated, changed_in_review: changed }));
         if (!sources.length) {
             this.ruleCheck = { status: "none", sources: [] };
             return this.ruleCheck;
         }
-        if (!this.generateCustomAnalysis) {
+        if (!this.generateCustomAnalysis && !this.generateReviewPass) {
             this.ruleCheck = { status: "unavailable", sources: summary };
             this.broadcast("rule-check");
             return this.ruleCheck;
@@ -931,11 +998,20 @@ export class ReviewState {
         this.broadcast("rule-check");
         let outcome;
         try {
-            const context = ruleCheckContext(customAnalysisContext(model, RULE_EVIDENCE_OPTIONS), sources, model.source_files);
-            const prompt = { id: "repository-rules", scope: "builtin", title: "Repository rules", prompt: RULES_PROMPT };
-            const content = validateCustomAnalysis(await withTimeout(this.generateCustomAnalysis({ prompt, context }),
-                this.customAnalysisTimeoutMs, "The repository rules check timed out. Run it again."), context);
-            outcome = { ...check, status: "complete", content, completed_at: new Date().toISOString() };
+            if (this.generateReviewPass) {
+                const result = await this.internalReview(RULES_PROMPT, { sources, force, onProgress: (progress) => {
+                    if (this.ruleCheck !== check || this.model !== model) return;
+                    check.coverage = progress;
+                    this.broadcast("rule-check-progress");
+                } });
+                outcome = { ...check, ...result, observations: undefined, sources: summary, completed_at: new Date().toISOString() };
+            } else {
+                const context = ruleCheckContext(customAnalysisContext(model, RULE_EVIDENCE_OPTIONS), sources, model.source_files);
+                const prompt = { id: "repository-rules", scope: "builtin", title: "Repository rules", prompt: RULES_PROMPT };
+                const content = validateCustomAnalysis(await withTimeout(this.generateCustomAnalysis({ prompt, context }),
+                    this.customAnalysisTimeoutMs, "The repository rules check timed out. Run it again."), context);
+                outcome = { ...check, status: "complete", content, completed_at: new Date().toISOString() };
+            }
         } catch (error) {
             outcome = { ...check, status: "error", error: error.message };
         }
@@ -958,7 +1034,7 @@ export class ReviewState {
         const prompts = (await this.promptStore().list()).filter((prompt) => prompt.enabled && prompt.trusted);
         const selected = input.id ? prompts.filter((prompt) => prompt.id === input.id && prompt.scope === input.scope) : prompts;
         if (input.id && !selected.length) throw new Error("The requested prompt is missing, disabled, or requires approval.");
-        if (selected.length && !this.generateCustomAnalysis) throw new Error("Custom AI analysis is unavailable in this provider.");
+        if (selected.length && !this.generateCustomAnalysis && !this.generateReviewPass) throw new Error("Custom AI analysis is unavailable in this provider.");
         if (this.model !== model || this.customAnalyses !== results) throw new Error("The review changed before custom analysis could start.");
         let pending = this.customAnalysisPromises.get(results);
         if (!pending) {
@@ -974,7 +1050,7 @@ export class ReviewState {
                 tasks.push(pending.get(key));
                 continue;
             }
-            if (results[key] && !input.force) continue;
+            if (results[key] && !input.force && !["partial", "cancelled"].includes(results[key].status)) continue;
             const result = { id: prompt.id, scope: prompt.scope, revision: prompt.revision, title: prompt.title, status: "queued" };
             results[key] = result;
             const task = chain.then(async () => {
@@ -982,9 +1058,18 @@ export class ReviewState {
                 result.status = "running";
                 if (this.customAnalyses === results) this.broadcast("custom-analysis");
                 try {
-                    result.content = validateCustomAnalysis(await withTimeout(this.generateCustomAnalysis({ prompt, context }),
-                        this.customAnalysisTimeoutMs, "Custom analysis timed out. Retry this check."), context);
-                    result.status = "complete";
+                    if (this.generateReviewPass) {
+                        const review = await this.internalReview(prompt.prompt, { force: input.force, scope: `custom:${key}`, onProgress: (progress) => {
+                            if (this.customAnalyses !== results || this.model !== model) return;
+                            result.coverage = progress;
+                            this.broadcast("custom-analysis-progress");
+                        } });
+                        Object.assign(result, review, { observations: undefined });
+                    } else {
+                        result.content = validateCustomAnalysis(await withTimeout(this.generateCustomAnalysis({ prompt, context }),
+                            this.customAnalysisTimeoutMs, "Custom analysis timed out. Retry this check."), context);
+                        result.status = "complete";
+                    }
                     result.completed_at = new Date().toISOString();
                 } catch (error) {
                     result.status = "error";
@@ -1263,15 +1348,43 @@ export class ReviewState {
         if (!this.model) throw new Error("Analysis is not complete.");
         if (this.annotationPromises.has("overview")) return this.annotationPromises.get("overview");
         const generation = this.reviewGeneration;
+        let evidenceRevision = null;
         const promise = (async () => {
             const history = this.refreshHistoricalSessionContexts();
             if (history) await history;
             if (this.decisionMap?.status === "loading") await this.decisionMapFor();
             if (generation !== this.reviewGeneration) throw new Error("The review changed while loading summary context.");
-            return this.generateAnnotation(this.overviewContext());
+            const context = this.overviewContext();
+            if (this.generateReviewPass) {
+                if (this.ruleCheck?.status === "running") await this.ruleCheckPromise;
+                let review = this.reviewEvidenceModel === this.model ? this.reviewEvidence : null;
+                if (!review) review = await this.internalReview(
+                    "Explain observable before/after behavior across this change. Collect concrete correctness risks and test evidence. Investigate cross-file contracts, defaults and units.",
+                    { scope: "overview" });
+                if (generation !== this.reviewGeneration) throw new Error("The review changed while collecting summary evidence.");
+                let remaining = 28_000;
+                const evidence = [];
+                // Rank confirmed concerns before behavior observations; keep underlying records intact.
+                for (const item of [...review.findings, ...review.observations]) {
+                    const characters = JSON.stringify(item).length;
+                    if (characters > remaining) continue;
+                    evidence.push(item);
+                    remaining -= characters;
+                }
+                context.code_context = [];
+                context.review_evidence = evidence;
+                context.evidence_limits = { ...review.coverage, status: review.status,
+                    omitted_records: review.findings.length + review.observations.length - evidence.length,
+                    gaps: review.gaps.slice(0, 10), omitted_gaps: Math.max(0, review.gaps.length - 10) };
+                evidenceRevision = this.reviewEvidenceRevision;
+            }
+            return this.generateAnnotation(context);
         })()
             .then((body) => {
                 if (generation !== this.reviewGeneration) throw new Error("The review changed while generating this summary.");
+                if (evidenceRevision !== null && evidenceRevision !== this.reviewEvidenceRevision) {
+                    throw new Error("Review evidence changed while generating this summary. Generate it again.");
+                }
                 const annotation = {
                     id: "annotation:overview",
                     item_id: "overview",
@@ -1591,13 +1704,40 @@ export class ReviewState {
     }
 
     async sourceForPath(path, startLine = null, endLine = startLine) {
+        const model = this.model;
+        if (!model) return { ...await this.readSourceSnapshot(path), start_line: startLine, end_line: endLine };
+        let sources = this.sourceSnapshotCache.get(model);
+        if (!sources) {
+            sources = new Map();
+            this.sourceSnapshotCache.set(model, sources);
+        }
+        if (!sources.has(path)) {
+            const pending = this.readSourceSnapshot(path).catch((error) => {
+                sources.delete(path);
+                throw error;
+            });
+            sources.set(path, pending);
+        }
+        const snapshot = await sources.get(path);
+        if (this.model !== model) throw new Error("The review changed while loading saved source.");
+        return { ...snapshot, start_line: startLine, end_line: endLine };
+    }
+
+    async readSourceSnapshot(path) {
+        const model = this.model;
+        const root = this.repoRoot;
+        const currentRef = this.reviewTarget.currentRef;
         const current = await this.readCurrentSource(path);
+        if (this.model !== model) throw new Error("The review changed while loading saved source.");
+        const saved = model?.source_files?.[path.replaceAll("\\", "/")];
         let base = null;
         let baseError = null;
-        const baseSha = this.model?.metadata?.base_sha;
-        if (baseSha) {
+        const baseSha = model?.metadata?.base_sha;
+        if (saved && Object.hasOwn(saved, "baseline")) {
+            base = saved.baseline;
+        } else if (baseSha) {
             try {
-                base = await git(this.repoRoot, ["show", `${baseSha}:${path.replaceAll("\\", "/")}`]);
+                base = await git(root, ["show", `${baseSha}:${path.replaceAll("\\", "/")}`]);
             } catch (error) {
                 baseError = `File is not present in the base snapshot: ${error.message}`;
             }
@@ -1606,9 +1746,8 @@ export class ReviewState {
         let diffError = null;
         if (baseSha) {
             try {
-                const saved = this.model?.source_files?.[path.replaceAll("\\", "/")];
-                diff = saved ? saved.diff || "" : await git(this.repoRoot, ["diff", "--no-ext-diff", "--unified=4", baseSha,
-                    ...(this.reviewTarget.currentRef ? [this.reviewTarget.currentRef] : []), "--", path]);
+                diff = saved ? saved.diff || "" : await git(root, ["diff", "--no-ext-diff", "--unified=4", baseSha,
+                    ...(currentRef ? [currentRef] : []), "--", path]);
             } catch (error) {
                 diffError = `Unable to load the source diff: ${error.message}`;
             }
@@ -1621,8 +1760,6 @@ export class ReviewState {
         }
         return {
             path,
-            start_line: startLine,
-            end_line: endLine,
             current,
             base,
             base_error: baseError,

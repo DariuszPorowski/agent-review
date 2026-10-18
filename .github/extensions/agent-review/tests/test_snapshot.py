@@ -15,6 +15,26 @@ from git_snapshot import Snapshot, baseline_files, current_files
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_large_repetitive_diff_uses_saved_bytes_and_preserves_late_change(self) -> None:
+        lines = [b"// repeated context\n"] * 20000
+        before = b"".join(lines) + b"-- old value\n"
+        after = b"".join(lines) + b"++ new value\n"
+        snapshot = Snapshot(Path("not-the-live-worktree"), "base",
+                            {"large.js": before}, {"large.js": after})
+        started = time.monotonic()
+        changes = snapshot.changes()
+        self.assertLess(time.monotonic() - started, 10, "large repetitive diffs must not use quadratic matching")
+        self.assertEqual([20001], changes[0]["added_lines"])
+        self.assertEqual([20001], changes[0]["removed_lines"])
+        self.assertEqual(1, changes[0]["lines_added"])
+        self.assertEqual(1, changes[0]["lines_removed"])
+        with patch("git_snapshot.subprocess.run", side_effect=AssertionError("diff must be reused")):
+            source = snapshot.source_files(changes)["large.js"]
+        self.assertIn("@@ -19997,5 +19997,5 @@", source["diff"])
+        self.assertIn("--- old value\n", source["diff"])
+        self.assertIn("+++ new value\n", source["diff"])
+        self.assertIn("--- a/large.js\n+++ b/large.js\n", source["diff"])
+
     def test_node_saved_sources_retain_both_trees_without_changing_python_only_shape(self) -> None:
         snapshot = Snapshot(Path("unused"), "base", {
             "main.ts": b"export function run() { return 1; }\n",

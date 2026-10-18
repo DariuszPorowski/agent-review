@@ -70,11 +70,15 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - name: Check packaging and runtime routing
-        run: node --test .github/extensions/agent-review/tests/test-distribution.mjs .github/extensions/agent-review/tests/test-bootstrap.mjs .github/extensions/agent-review/tests/test-python-runtime.mjs
+        run: node --test .github/extensions/agent-review/tests/test-distribution.mjs .github/extensions/agent-review/tests/test-bootstrap.mjs .github/extensions/agent-review/tests/test-python-runtime.mjs .github/extensions/agent-review/tests/test-publish-workflow.mjs
       - name: Check review evidence budgets and repository rules
-        run: node --test .github/extensions/agent-review/tests/test-custom-analysis.mjs .github/extensions/agent-review/tests/test-review-contracts.mjs
+        run: node --test .github/extensions/agent-review/tests/test-custom-analysis.mjs .github/extensions/agent-review/tests/test-review-contracts.mjs .github/extensions/agent-review/tests/test-review-pipeline.mjs
+      - name: Check saved snapshots and oversized diffs
+        run: python -m unittest discover -s .github/extensions/agent-review/tests -p test_snapshot.py
       - name: Check cross-platform session paths and attribution
         run: node --test .github/extensions/agent-review/tests/test-session-context.mjs
+      - name: Check source navigation and snapshot caching
+        run: node --test .github/extensions/agent-review/tests/test-diff-context.mjs .github/extensions/agent-review/tests/test-source-performance.mjs
       - name: Build prepared extension
         run: node scripts/build-distribution.mjs "${{ runner.temp }}/agent-review-dist"
       - name: Verify bundled analyzers
@@ -133,12 +137,11 @@ jobs:
           fi
           node scripts/build-release-distribution.mjs --bootstrap-from \
             "$RELEASE_ROOT/release-manifest.json" "$DIST_ROOT"
-          auth_key="http.${SERVER_URL}/.extraheader"
-          auth="$(git config --local --get "$auth_key")"
           cd "$DIST_ROOT"
           git init --initial-branch=dist
           git remote add origin "${SERVER_URL}/${REPOSITORY}.git"
-          git config "$auth_key" "$auth"
+          git config --local "credential.${SERVER_URL}.helper" ""
+          git config --local --add "credential.${SERVER_URL}.helper" '!gh auth git-credential'
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           existing="$(git ls-remote origin refs/heads/dist)"

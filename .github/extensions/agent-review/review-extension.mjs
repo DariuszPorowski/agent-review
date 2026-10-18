@@ -1,6 +1,6 @@
 import { CanvasError, createCanvas } from "@github/copilot-sdk/extension";
 import { canvasDefinition } from "./canvas-definition.mjs";
-import { generateIsolatedExplanation } from "./ai-explainer.mjs";
+import { createExplanationRuntime, generateIsolatedExplanation } from "./ai-explainer.mjs";
 import { buildCustomAnalysisPrompt, CUSTOM_ANALYSIS_HEADINGS, validateCustomAnalysis } from "./custom-analysis.mjs";
 import {
     ANNOTATION_HEADINGS,
@@ -16,6 +16,8 @@ import { preferredPort, readCanvasMarkers, writeCanvasMarker } from "./canvas-pe
 import { startReviewServer } from "./server.mjs";
 import { ReviewLifecycle } from "./review-lifecycle.mjs";
 import { pruneStaleArtifacts } from "./storage-cleanup.mjs";
+import { buildReviewPrompt, reviewResponseSchema, validateReviewResponse } from "./review-pipeline.mjs";
+import { selectedModelFromEvents } from "./ai-response.mjs";
 
 const instances = new Map();
 const pendingInstances = new Map();
@@ -84,6 +86,18 @@ function createReviewState(requestedPath, input) {
         getSessionEvents: () => session.getEvents(),
         currentSessionId: session.sessionId,
         workspacePath: session.workspacePath,
+        reviewModelId: async () => selectedModelFromEvents(await session.getEvents()),
+        createReviewRuntime: (modelId) => createExplanationRuntime(state.repoRoot, modelId),
+        generateReviewPass: async (context, { signal, runtimeClient, modelId }) => generateIsolatedExplanation({
+            workingDirectory: state.repoRoot,
+            prompt: buildReviewPrompt(context),
+            responseSchema: reviewResponseSchema(context),
+            signal,
+            runtimeClient,
+            modelId,
+            attempts: 1,
+            validateResponse: (content) => validateReviewResponse(content, context),
+        }),
         getHistoricalSessionContexts: () => loadHistoricalSessionContexts(state.repoRoot, session.sessionId),
         generateAnnotation: async (context) => {
             const overview = context.kind === "overview";

@@ -72,6 +72,8 @@ export function buildOverviewPrompt(context) {
         "Use exactly these Markdown sections in this order:",
         "## Summary",
         "2-3 bullets describing observable before/after behavior from code_context's saved diffs and implementations: inputs accepted, decisions changed, fallback order, outputs, and failure paths.",
+        "When review_evidence is present, it contains accumulated AI interpretations with saved-source citations from internal passes; use it instead of assuming empty code_context means no source was analyzed. Do not strengthen those interpretations into proven facts.",
+        "Honor evidence_limits.status and completed/total counts; incomplete analysis is a gap even when no findings were supported. Omitted records are presentation limits, not unreviewed code.",
         "Lead with the behavioral change, not filenames, line counts, or complexity. If source evidence is partial, limit claims to what is visible.",
         "If session_intent states the request, begin the first bullet with **Requested:** and paraphrase it in at most 20 words, then state whether the change files plausibly fulfil it.",
         "If commit_intent (the commit message or PR description) states claims such as validation rules or scope, compare them with the code: name any claim the diff does not support, e.g. a 'strict' check that applies only when a field is present.",

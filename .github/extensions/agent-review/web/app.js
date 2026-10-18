@@ -836,16 +836,118 @@ function ruleCitations(content, path) {
     return merged;
 }
 
-async function openRuleFile(path, ranges) {
+async function openRuleFile(path, ranges, side = "current") {
     const epoch = ++state.selectionEpoch;
     try {
-        await loadSource(`path=${encodeURIComponent(path)}&side=current`, epoch, "current", "reset", { highlights: ranges });
+        await loadSource(`path=${encodeURIComponent(path)}&side=${side}`, epoch, side, "reset", { highlights: ranges });
     } catch (error) {
         if (epoch === state.selectionEpoch) showError(error);
     }
 }
 
 // Built-in check of the repository's own rule files, shown in the brief rather than among the user's prompts.
+function appendInternalReview(container, review, scope, resume) {
+    if (!review?.coverage) return;
+    const coverage = review.coverage;
+    const progress = el("p", "muted", `${countLabel(coverage.completed_files, "changed file")} analyzed of ${coverage.total_files}` +
+        ` · ${countLabel(coverage.completed_units, "evidence unit")} analyzed of ${coverage.total_units}` +
+        ` · ${coverage.supplied_units || 0} supplied` +
+        ` · ${review.requests ?? coverage.requests ?? 0} model requests this run` +
+        (coverage.phase ? ` · ${coverage.phase}` : ""));
+    progress.setAttribute("role", "status");
+    container.append(progress);
+    const actions = el("div", "action-row");
+    if (review.status === "running") {
+        const cancel = el("button", "", "Stop AI review");
+        cancel.type = "button";
+        cancel.addEventListener("click", async () => {
+            cancel.disabled = true;
+            try { await api("/api/internal-reviews/cancel", { method: "POST", body: JSON.stringify({ scope }) }); }
+            catch (error) { cancel.disabled = false; showError(error); }
+        });
+        actions.append(cancel);
+    } else if (["partial", "cancelled"].includes(review.status) && (coverage.completed_units < coverage.total_units
+        || review.unresolved_findings?.length || review.pending_context_requests)) {
+        const proceed = el("button", "", "Continue review");
+        proceed.type = "button";
+        proceed.addEventListener("click", async () => {
+            proceed.disabled = true;
+            try { await resume(); }
+            catch (error) { proceed.disabled = false; showError(error); }
+        });
+        actions.append(proceed);
+    }
+    if (actions.childNodes.length) container.append(actions);
+    if (review.findings?.length > 8) {
+        const all = el("details", "");
+        all.append(el("summary", "", `All ${review.findings.length} findings`));
+        const list = el("ul", "");
+        for (const finding of review.findings) {
+            const item = el("li", "");
+            item.append(el("strong", "", `${finding.severity}: ${finding.title}`), document.createTextNode(` ${finding.detail} `));
+            for (const citation of finding.citations) {
+                const open = el("button", "link-button", `${citation.path}:${citation.line}${citation.side === "base" ? " (base)" : ""}`);
+                open.type = "button";
+                open.addEventListener("click", () => openRuleFile(citation.path, [[citation.line]], citation.side));
+                item.append(open, document.createTextNode(" "));
+            }
+            list.append(item);
+        }
+        all.append(list);
+        container.append(all);
+    }
+    if (review.gaps?.length) {
+        const gaps = el("details", "");
+        gaps.append(el("summary", "", countLabel(review.gaps.length, "evidence gap")));
+        const list = el("ul", "");
+        for (const gap of review.gaps) list.append(el("li", "", `${gap.path ? `${gap.path}: ` : ""}${gap.reason}`));
+        gaps.append(list);
+        container.append(gaps);
+    }
+    if (review.unresolved_findings?.length) {
+        const candidates = el("details", "");
+        candidates.append(el("summary", "", `${countLabel(review.unresolved_findings.length, "candidate")} requiring verification`));
+        const list = el("ul", "");
+        for (const finding of review.unresolved_findings) {
+            const item = el("li", "", `${finding.title}: ${finding.detail} `);
+            for (const citation of finding.citations) item.append(sourceReferenceButton(
+                `${citation.path}:${citation.line}${citation.side === "base" ? " (base)" : ""}`,
+                { path: citation.path, lines: [citation.line], side: citation.side }), document.createTextNode(" "));
+            list.append(item);
+        }
+        candidates.append(list);
+        container.append(candidates);
+    }
+}
+
+function renderInternalReviewBody(container, review) {
+    container.append(el("h3", "", "Findings"));
+    if (!review.findings?.length) {
+        container.append(el("p", "", review.status === "complete"
+            ? "No supported findings." : "No supported findings in the completed analysis."));
+        return;
+    }
+    const list = el("ul", "");
+    for (const finding of review.findings.slice(0, 8)) {
+        const item = el("li", "");
+        item.append(el("strong", "", `${finding.severity}: ${finding.title}`), document.createTextNode(" "));
+        item.append(document.createTextNode(finding.detail.length > 320 ? `${finding.detail.slice(0, 319)}… ` : `${finding.detail} `));
+        for (const citation of finding.citations.slice(0, 4)) item.append(sourceReferenceButton(
+            `${citation.path}:${citation.line}${citation.side === "base" ? " (base)" : ""}`,
+            { path: citation.path, lines: [citation.line], side: citation.side }), document.createTextNode(" "));
+        if (finding.detail.length > 320 || finding.citations.length > 4) {
+            const full = el("details", "");
+            full.append(el("summary", "", "Full evidence"), el("p", "", finding.detail));
+            for (const citation of finding.citations) full.append(sourceReferenceButton(
+                `${citation.path}:${citation.line}${citation.side === "base" ? " (base)" : ""}`,
+                { path: citation.path, lines: [citation.line], side: citation.side }), document.createTextNode(" "));
+            item.append(full);
+        }
+        list.append(item);
+    }
+    container.append(list);
+}
+
 function renderRuleCheck() {
     const rules = state.payload?.rule_check;
     if (!rules?.sources?.length) return null;
@@ -853,7 +955,7 @@ function renderRuleCheck() {
     details.open = state.ruleCheckOpen !== false;
     details.addEventListener("toggle", () => { if (details.isConnected) state.ruleCheckOpen = details.open; });
     const summary = el("summary", "");
-    summary.append(document.createTextNode(`Repository rules · ${rules.sources.map((source) => source.path).join(", ")}`),
+    summary.append(document.createTextNode(`Repository rules · ${rules.sources.length > 3 ? countLabel(rules.sources.length, "instruction file") : rules.sources.map((source) => source.path).join(", ")}`),
         el("span", `custom-status custom-${rules.status}`, rules.status === "unavailable" ? "AI unavailable" : rules.status));
     details.append(summary);
     const sources = el("p", "muted rule-sources");
@@ -872,15 +974,29 @@ function renderRuleCheck() {
     });
     sources.append(document.createTextNode(". Copilot checks the change against these rules; verify its claims."));
     details.append(sources);
+    appendInternalReview(details, rules, "rules", () => api("/api/rule-check", {
+        method: "POST", body: JSON.stringify({ force: false }),
+    }));
     if (rules.status === "running") details.append(aiPlaceholder("rule-check", "Copilot is checking the change against the repository rules…", 3));
     if (rules.content) {
         markdownContext.subject = null;
         markdownContext.intent = null;
         const body = revealOnce(el("div", "annotation-body"), "rule-check");
-        renderMarkdown(body, rules.content);
+        if (rules.coverage) renderInternalReviewBody(body, rules);
+        else renderMarkdown(body, rules.content);
         details.append(body);
     }
-    if (rules.error) details.append(el("p", "error", rules.error));
+    if (rules.error) {
+        details.append(el("p", "error", rules.error));
+        const retry = el("button", "", "Run again");
+        retry.type = "button";
+        retry.addEventListener("click", async () => {
+            retry.disabled = true;
+            try { await api("/api/rule-check", { method: "POST", body: JSON.stringify({ force: true }) }); }
+            catch (error) { retry.disabled = false; showError(error); }
+        });
+        details.append(retry);
+    }
     return details;
 }
 
@@ -943,14 +1059,15 @@ function setDetailVisible(visible) {
 
 async function loadSource(query, epoch, preferredTab = null, nav = "reset", extras = {}) {
     const source = await api(`/api/source?${query}`);
-    const attribution = await fetchAttribution(source.path);
+    if (epoch !== state.selectionEpoch) return false;
+    const attribution = await fetchAttribution(source.path, epoch);
     if (epoch !== state.selectionEpoch) return false;
     state.source = { ...source, ...extras };
     state.attribution = attribution;
     state.sourceTab = source.declaration_highlight?.side === "base" ? "base"
         : preferredTab || (source.diff ? "diff" : "current");
     recordSourceNavigation(nav, { query, extras, tab: state.sourceTab, label: `${source.path}${source.start_line ? `:${source.start_line}` : ""}` });
-    renderSource();
+    if (!await renderSource() || epoch !== state.selectionEpoch) return false;
     const side = elements.source_panel.querySelector(".source-side");
     side.scrollTop = 0;
     side.scrollLeft = 0;
@@ -998,17 +1115,21 @@ async function navigateSource(delta) {
     }
 }
 
-async function fetchAttribution(path) {
+async function fetchAttribution(path, epoch = state.selectionEpoch) {
     if (!path) return [];
     try {
         const provenance = await api(`/api/attribution?path=${encodeURIComponent(path)}`);
-        state.attributionStatus = provenance.status || "matched";
-        state.attributionMessage = provenance.message || "";
+        if (epoch === state.selectionEpoch) {
+            state.attributionStatus = provenance.status || "matched";
+            state.attributionMessage = provenance.message || "";
+        }
         return provenance.attribution || [];
     } catch (error) {
         if (error.status !== 404) throw error;
-        state.attributionStatus = "no_match";
-        state.attributionMessage = "No originating prompt was found.";
+        if (epoch === state.selectionEpoch) {
+            state.attributionStatus = "no_match";
+            state.attributionMessage = "No originating prompt was found.";
+        }
         return [];
     }
 }
@@ -1515,8 +1636,7 @@ function codeRow(type, oldNumber, newNumber, prefix, content) {
     return row;
 }
 
-function parseDiff(text) {
-    const rows = [];
+function* diffRowIterator(text) {
     let oldLine = 0;
     let newLine = 0;
     const lines = String(text || "").split(/\r?\n/);
@@ -1534,7 +1654,7 @@ function parseDiff(text) {
                 const header = codeRow("hunk", "", "", "", `Lines ${range}${context ? ` · ${context}` : ""}`);
                 header.dataset.oldStart = String(oldLine);
                 header.dataset.newStart = String(newLine);
-                rows.push(header);
+                yield header;
             }
             index += 1;
             continue;
@@ -1548,23 +1668,26 @@ function parseDiff(text) {
             while (lines[index]?.startsWith("-") && !lines[index].startsWith("---")) removed.push(lines[index++].slice(1));
             const added = [];
             while (lines[index]?.startsWith("+") && !lines[index].startsWith("+++")) added.push(lines[index++].slice(1));
-            for (const content of removed) rows.push(codeRow("delete", oldLine++, "", "−", content));
-            for (const content of added) rows.push(codeRow("add", "", newLine++, "+", content));
+            for (const content of removed) yield codeRow("delete", oldLine++, "", "−", content);
+            for (const content of added) yield codeRow("add", "", newLine++, "+", content);
             continue;
         } else if (line.startsWith("+")) {
-            rows.push(codeRow("add", "", newLine++, "+", line.slice(1)));
+            yield codeRow("add", "", newLine++, "+", line.slice(1));
         } else if (line.startsWith(" ")) {
-            rows.push(codeRow("context", oldLine++, newLine++, " ", line.slice(1)));
+            yield codeRow("context", oldLine++, newLine++, " ", line.slice(1));
         } else if (line) {
-            rows.push(codeRow("meta", "", "", "", line));
+            yield codeRow("meta", "", "", "", line);
         }
         index += 1;
     }
-    return rows;
 }
 
-function renderPlainSource(text, side) {
-    if (text === null || text === undefined) return [];
+function parseDiff(text) {
+    return [...diffRowIterator(text)];
+}
+
+function* plainSourceRows(text, side) {
+    if (text === null || text === undefined) return;
     const segments = diffSegments(state.source?.diff);
     const marks = side === "base" ? segments.base : segments.current;
     const gaps = side === "base" ? segments.addedBefore : segments.removedBefore;
@@ -1576,16 +1699,14 @@ function renderPlainSource(text, side) {
         return row;
     };
     const lines = String(text).split(/\r\n|\r|\n/);
-    const rows = [];
-    lines.forEach((line, index) => {
+    for (const [index, line] of lines.entries()) {
         const number = index + 1;
-        if (gaps.has(number)) rows.push(gapRow(gaps.get(number)));
+        if (gaps.has(number)) yield gapRow(gaps.get(number));
         const type = marks.get(number);
-        rows.push(codeRow(type || "context", side === "base" ? number : "", side === "base" ? "" : number,
-            type ? (side === "base" ? "−" : "+") : "", line));
-    });
-    if (gaps.has(lines.length + 1)) rows.push(gapRow(gaps.get(lines.length + 1)));
-    return rows;
+        yield codeRow(type || "context", side === "base" ? number : "", side === "base" ? "" : number,
+            type ? (side === "base" ? "−" : "+") : "", line);
+    }
+    if (gaps.has(lines.length + 1)) yield gapRow(gaps.get(lines.length + 1));
 }
 
 // Unchanged regions between hunks, with matching base/current line numbers for in-place expansion.
@@ -1607,11 +1728,15 @@ function diffGaps(source) {
     }
     if (currentLines.length > newEnd) gaps.push({ before: hunks.length, newFrom: newEnd + 1, newTo: currentLines.length, oldFrom: oldEnd + 1 });
     return gaps.map((gap) => ({ ...gap, key: `${gap.newFrom}-${gap.newTo}`,
-        rows: () => currentLines.slice(gap.newFrom - 1, gap.newTo).map((content, offset) =>
-            codeRow("context", gap.oldFrom + offset, gap.newFrom + offset, " ", content)) }));
+        *iterateRows() {
+            for (let line = gap.newFrom; line <= gap.newTo; line++) {
+                yield codeRow("context", gap.oldFrom + line - gap.newFrom, line, " ", currentLines[line - 1]);
+            }
+        },
+        rows() { return [...this.iterateRows()]; } }));
 }
 
-function gapToggleRow(gap, expanded) {
+function gapToggleRow(gap, expanded, contextRows) {
     const count = gap.newTo - gap.newFrom + 1;
     const row = codeRow("gap-toggle", "", "", expanded ? "▴" : "▾",
         `${expanded ? "Hide" : "Show"} ${countLabel(count, "unchanged line")} (${gap.newFrom}–${gap.newTo})`);
@@ -1619,36 +1744,109 @@ function gapToggleRow(gap, expanded) {
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.setAttribute("aria-expanded", String(expanded));
-    const toggle = () => {
-        const expandedGaps = state.source.expandedGaps ||= new Set();
-        if (expandedGaps.has(gap.key)) expandedGaps.delete(gap.key);
-        else expandedGaps.add(gap.key);
-        renderSource({ preserveScroll: true, focusGap: gap.key });
+    let displayedRows = contextRows;
+    let displayedChunks = [];
+    let toggling = false;
+    const toggle = async () => {
+        if (!row.isConnected || state.sourceTab !== "diff" || toggling) return;
+        const source = state.source;
+        toggling = true;
+        row.setAttribute("aria-busy", "true");
+        try {
+            const previousScroll = { top: elements.source.scrollTop, left: elements.source.scrollLeft };
+            const expandedGaps = state.source.expandedGaps ||= new Set();
+            const expand = !expandedGaps.has(gap.key);
+            if (expand) {
+                const prepared = [];
+                let started = performance.now();
+                for (const context of gap.iterateRows()) {
+                    prepared.push(context);
+                    if (prepared.length % 100 === 0 && performance.now() - started > 8) {
+                        await new Promise((resolve) => setTimeout(resolve, 0));
+                        if (!row.isConnected || state.source !== source || state.sourceTab !== "diff") return;
+                        started = performance.now();
+                    }
+                }
+                const referencedRows = [...elements.source.querySelectorAll(`[data-gap-context="${gap.key}"]`)];
+                referencedRows.forEach((context) => context.remove());
+                displayedRows = prepared;
+                const focusSide = state.source.declaration_highlight?.side || state.source.focus_side
+                    || (state.source.current === null ? "base" : "current");
+                applySourceFocus(displayedRows, Number(state.source.start_line),
+                    Number(state.source.end_line || state.source.start_line), focusSide);
+                applyCitedHighlights(displayedRows);
+                const fragment = document.createDocumentFragment();
+                if (displayedRows.length > 2000) {
+                    for (let offset = 0; offset < displayedRows.length; offset += 100) {
+                        const chunk = el("div", "source-chunk");
+                        chunk.append(...displayedRows.slice(offset, offset + 100));
+                        displayedChunks.push(chunk);
+                        fragment.append(chunk);
+                    }
+                } else fragment.append(...displayedRows);
+                row.after(fragment);
+                expandedGaps.add(gap.key);
+            } else {
+                if (displayedChunks.length) displayedChunks.forEach((chunk) => chunk.remove());
+                else displayedRows.forEach((context) => context.remove());
+                displayedChunks = [];
+                displayedRows = [];
+                const focusSide = state.source.declaration_highlight?.side || state.source.focus_side
+                    || (state.source.current === null ? "base" : "current");
+                const start = Number(state.source.start_line);
+                const context = unchangedDiffContext({ ...state.source, line: start, side: focusSide });
+                if (context?.length && context[0].newLine >= gap.newFrom && context.at(-1).newLine <= gap.newTo) {
+                    const referencedRows = [codeRow("hunk", "", "", "", `Referenced line ${start} · unchanged context`),
+                        ...context.map((item) => codeRow("context", item.oldLine, item.newLine, " ", item.content))];
+                    referencedRows.forEach((item) => { item.dataset.gapContext = gap.key; });
+                    applySourceFocus(referencedRows, start, Number(state.source.end_line || start), focusSide);
+                    applyCitedHighlights(referencedRows);
+                    row.after(...referencedRows);
+                }
+                expandedGaps.delete(gap.key);
+            }
+            row.querySelector(".diff-prefix").textContent = expand ? "▴" : "▾";
+            row.querySelector("code").textContent =
+                `${expand ? "Hide" : "Show"} ${countLabel(count, "unchanged line")} (${gap.newFrom}–${gap.newTo})`;
+            row.setAttribute("aria-expanded", String(expand));
+            renderChangeRuler([...elements.source.querySelectorAll(".code-row")]);
+            elements.source.scrollTop = previousScroll.top;
+            elements.source.scrollLeft = previousScroll.left;
+            row.focus({ preventScroll: true });
+        } finally {
+            toggling = false;
+            row.removeAttribute("aria-busy");
+        }
     };
-    row.addEventListener("click", toggle);
+    row.addEventListener("click", () => toggle().catch(showError));
     row.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            toggle();
+            toggle().catch(showError);
         }
     });
     return row;
 }
 
-function diffRowsWithGaps(source) {
-    const rows = parseDiff(source.diff);
+function diffRowsWithGaps(source, rows) {
     const gaps = diffGaps(source);
     if (!gaps.length) return rows.filter((row) => !row.dataset.newStart);
-    const headers = rows.filter((row) => row.classList.contains("diff-hunk") && row.dataset.newStart);
+    const headers = new Map(rows.filter((row) => row.classList.contains("diff-hunk") && row.dataset.newStart)
+        .map((row, index) => [row, index]));
     const result = [];
     const expandedGaps = source.expandedGaps || new Set();
     const insertGap = (gap) => {
+        if (gap.newTo - gap.newFrom + 1 < 5) {
+            result.push(...gap.rows());
+            return;
+        }
         const expanded = expandedGaps.has(gap.key);
-        result.push(gapToggleRow(gap, expanded), ...(expanded ? gap.rows() : []));
+        const contextRows = expanded ? gap.rows() : [];
+        result.push(gapToggleRow(gap, expanded, contextRows), ...contextRows);
     };
     let gapIndex = 0;
     for (const row of rows) {
-        const hunkIndex = headers.indexOf(row);
+        const hunkIndex = headers.get(row) ?? -1;
         while (hunkIndex >= 0 && gapIndex < gaps.length && gaps[gapIndex].before <= hunkIndex) insertGap(gaps[gapIndex++]);
         if (hunkIndex < 0) result.push(row);
     }
@@ -1656,13 +1854,78 @@ function diffRowsWithGaps(source) {
     return result;
 }
 
-function renderSource({ preserveScroll = false, focusGap = null } = {}) {
+const sourceRowCache = new Map();
+let sourceRenderVersion = 0;
+
+function matchingSourceRows(source, tab) {
+    const cached = sourceRowCache.get(`${source.path}\0${tab}`);
+    return cached && cached.generation === state.payload?.review_generation && cached.diff === source.diff
+        && cached.text === source[tab] && cached.current === source.current && cached.base === source.base ? cached : null;
+}
+
+async function cachedSourceRows(source, tab, isCurrent) {
+    const key = `${source.path}\0${tab}`;
+    const generation = state.payload?.review_generation;
+    const cached = matchingSourceRows(source, tab);
+    if (cached) {
+        sourceRowCache.delete(key);
+        sourceRowCache.set(key, cached);
+        for (const row of new Set([...cached.marked,
+            ...(cached.lines?.querySelectorAll(".focus-line, .cited-line") || [])])) {
+            row.classList.remove("focus-line", "focus-start", "focus-end", "cited-line", "cited-start", "cited-end");
+            const code = row.querySelector("code");
+            if (code?.querySelector("mark")) code.textContent = code.textContent;
+        }
+        cached.marked = [];
+        cached.references?.forEach((row) => row.remove());
+        cached.lines?.querySelectorAll("[data-gap-context]").forEach((row) => row.remove());
+        cached.references = [];
+        source.expandedGaps = cached.expandedGaps;
+        return cached;
+    }
+    const rows = [];
+    const iterator = tab === "diff" ? diffRowIterator(source.diff) : plainSourceRows(source[tab], tab);
+    let started = performance.now();
+    for (const row of iterator) {
+        rows.push(row);
+        if (rows.length % 100 === 0 && performance.now() - started > 8) {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            if (!isCurrent()) return null;
+            started = performance.now();
+        }
+    }
+    if (!isCurrent()) return null;
+    const entry = { generation, diff: source.diff, text: source[tab], current: source.current, base: source.base,
+        rows, marked: [], references: [],
+        expandedGaps: source.expandedGaps ||= new Set() };
+    if (rows.length > 60_000) return entry;
+    sourceRowCache.set(key, entry);
+    let total = [...sourceRowCache.values()].reduce((sum, entry) => sum + entry.rows.length, 0);
+    while (sourceRowCache.size > 3 || (total > 60_000 && sourceRowCache.size > 1)) {
+        const first = sourceRowCache.keys().next().value;
+        total -= sourceRowCache.get(first).rows.length;
+        sourceRowCache.delete(first);
+    }
+    return entry;
+}
+
+async function renderSource({ preserveScroll = false } = {}) {
     if (!state.source) return;
+    const source = state.source;
+    const tab = state.sourceTab;
+    const version = ++sourceRenderVersion;
+    const isCurrent = () => version === sourceRenderVersion && state.source === source && state.sourceTab === tab;
     const previousScroll = { top: elements.source.scrollTop, left: elements.source.scrollLeft };
     elements.source_panel.classList.remove("hidden");
     elements.source_title.textContent = `${state.source.path}${state.source.start_line ? `:${state.source.start_line}` : ""}`;
-    const text = state.source[state.sourceTab];
-    const rows = state.sourceTab === "diff" ? diffRowsWithGaps(state.source) : renderPlainSource(text, state.sourceTab);
+    elements.source.setAttribute("aria-busy", "true");
+    if (!matchingSourceRows(source, tab)) elements.source.replaceChildren(el("p", "muted", "Rendering saved source…"));
+    elements.source_ruler.classList.add("hidden");
+    const cached = await cachedSourceRows(source, tab, isCurrent);
+    if (!cached || !isCurrent()) return false;
+    const reused = Boolean(cached.lines);
+    const rows = reused ? [...cached.lines.querySelectorAll(".code-row")]
+        : tab === "diff" ? diffRowsWithGaps(source, cached.rows) : cached.rows;
     const start = Number(state.source.start_line);
     const focusSide = state.source.declaration_highlight?.side || state.source.focus_side
         || (state.source.current === null ? "base" : "current");
@@ -1676,15 +1939,27 @@ function renderSource({ preserveScroll = false, focusGap = null } = {}) {
             const first = context[0][key];
             const position = rows.findIndex((row) =>
                 Number(row.dataset?.[headerKey]) >= first || Number(row.dataset?.[key]) >= first);
-            rows.splice(position < 0 ? rows.length : position, 0,
+            const referencedRows = [
                 codeRow("hunk", "", "", "", `Referenced line ${start} · unchanged context`),
-                ...context.map((row) => codeRow("context", row.oldLine, row.newLine, " ", row.content)));
+                ...context.map((row) => codeRow("context", row.oldLine, row.newLine, " ", row.content))];
+            const gap = rows.find((row) => {
+                if (!row.dataset.gap) return false;
+                const [from, to] = row.dataset.gap.split("-").map(Number);
+                return context[0].newLine >= from && context.at(-1).newLine <= to;
+            });
+            if (gap) referencedRows.forEach((row) => { row.dataset.gapContext = gap.dataset.gap; });
+            cached.references = referencedRows;
+            if (reused) {
+                if (position < 0) rows.at(-1)?.after(...referencedRows);
+                else rows[position].before(...referencedRows);
+            }
+            rows.splice(position < 0 ? rows.length : position, 0, ...referencedRows);
         } else {
             elements.source_context_notice.textContent = `Referenced line ${start} is not included in this diff. Open ${focusSide === "base" ? "Base" : "Current"} to inspect it.`;
             elements.source_context_notice.classList.remove("hidden");
         }
     }
-    const lines = el("div", "code-lines");
+    const lines = cached.lines || el("div", "code-lines");
     const oldNumbers = rows.some((row) => row.dataset?.oldLine);
     const newNumbers = rows.some((row) => row.dataset?.newLine);
     lines.classList.toggle("new-lines-only", newNumbers && !oldNumbers);
@@ -1692,11 +1967,17 @@ function renderSource({ preserveScroll = false, focusGap = null } = {}) {
     const largestLine = rows.reduce((largest, row) =>
         Math.max(largest, Number(row.dataset?.oldLine) || 0, Number(row.dataset?.newLine) || 0), 0);
     lines.style.setProperty("--source-line-digits", String(Math.max(2, String(largestLine).length)));
-    lines.append(...(rows.length ? rows : [el("p", "empty-code", "(not present in this snapshot)")]));
-    elements.source.replaceChildren(lines);
-    if (!preserveScroll) {
-        elements.source.scrollTop = 0;
-        elements.source.scrollLeft = 0;
+    if (!reused) {
+        if (rows.length > 2000) {
+            const fragment = document.createDocumentFragment();
+            for (let offset = 0; offset < rows.length; offset += 100) {
+                const chunk = el("div", "source-chunk");
+                chunk.append(...rows.slice(offset, offset + 100));
+                fragment.append(chunk);
+            }
+            lines.append(fragment);
+        } else lines.append(...(rows.length ? rows : [el("p", "empty-code", "(not present in this snapshot)")]));
+        cached.lines = lines;
     }
     let focusStart = start;
     let focusEnd = Number(state.source.end_line || state.source.start_line);
@@ -1713,8 +1994,39 @@ function renderSource({ preserveScroll = false, focusGap = null } = {}) {
         focusStart = mapLine(start);
         focusEnd = mapLine(focusEnd) || focusStart;
     }
+    const focused = applySourceFocus(rows, focusStart, focusEnd, focusSide);
+    const cited = applyCitedHighlights(rows);
+    cached.marked = [...new Set([...focused, ...cited])];
+    if (elements.source.firstElementChild !== lines) elements.source.replaceChildren(lines);
+    elements.source.removeAttribute("aria-busy");
+    if (!preserveScroll) {
+        elements.source.scrollTop = 0;
+        elements.source.scrollLeft = 0;
+        focused[0]?.scrollIntoView({ block: "center" });
+    }
+    if (preserveScroll) {
+        elements.source.scrollTop = previousScroll.top;
+        elements.source.scrollLeft = previousScroll.left;
+    } else if (cited[0] && !(Number.isFinite(focusStart) && focusStart > 0)) {
+        cited[0].scrollIntoView({ block: "center" });
+    }
+    renderChangeRuler(rows);
+    const annotation = state.payload?.annotations?.[state.selected?.id];
+    const selectedPath = state.selected?.path || state.payload?.model?.nodes?.find((node) =>
+        node.id === (state.selected?.node_id || state.selected?.id))?.path;
+    if (annotation && selectedPath === state.source.path) renderAnnotation(state.selected, annotation);
+    else elements.source_annotation.classList.add("hidden");
+    renderSourceRisk();
+    renderSourceDecisions();
+    renderProvenance();
+    document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === state.sourceTab));
+    renderSourceNavigation();
+    return true;
+}
+
+function applySourceFocus(rows, focusStart, focusEnd, focusSide) {
+    const focused = [];
     if (Number.isFinite(focusStart) && focusStart > 0) {
-        const focused = [];
         for (const row of rows) {
             const oldLine = Number(row.dataset?.oldLine);
             const newLine = Number(row.dataset?.newLine);
@@ -1746,27 +2058,8 @@ function renderSource({ preserveScroll = false, focusGap = null } = {}) {
             if (index === 0) row.classList.add("focus-start");
             if (index === focused.length - 1) row.classList.add("focus-end");
         });
-        if (!preserveScroll) focused[0]?.scrollIntoView({ block: "center" });
     }
-    const cited = applyCitedHighlights(rows);
-    if (preserveScroll) {
-        elements.source.scrollTop = previousScroll.top;
-        elements.source.scrollLeft = previousScroll.left;
-        if (focusGap) rows.find((row) => row.dataset?.gap === focusGap)?.focus({ preventScroll: true });
-    } else if (cited[0] && !(Number.isFinite(focusStart) && focusStart > 0)) {
-        cited[0].scrollIntoView({ block: "center" });
-    }
-    renderChangeRuler(rows);
-    const annotation = state.payload?.annotations?.[state.selected?.id];
-    const selectedPath = state.selected?.path || state.payload?.model?.nodes?.find((node) =>
-        node.id === (state.selected?.node_id || state.selected?.id))?.path;
-    if (annotation && selectedPath === state.source.path) renderAnnotation(state.selected, annotation);
-    else elements.source_annotation.classList.add("hidden");
-    renderSourceRisk();
-    renderSourceDecisions();
-    renderProvenance();
-    document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === state.sourceTab));
-    renderSourceNavigation();
+    return focused;
 }
 
 // Lines cited by a check (for example, repository rules) stay marked in whichever tab shows them.
@@ -3002,11 +3295,13 @@ function renderCustomAnalyses() {
         summary.append(el("strong", "", prompt.title), el("span", `custom-status custom-${result?.status || "waiting"}`,
             !prompt.trusted ? "Approval required" : result?.status || "Waiting"));
         details.append(summary, el("p", "muted", `${prompt.scope === "global" ? "All repositories" : "This repository"} · Saved snapshot · AI-generated, verify claims`));
+        appendInternalReview(details, result, `custom:${key}`, () => runCustomAnalyses({ scope: prompt.scope, id: prompt.id, force: false }));
         if (result?.content) {
             markdownContext.subject = null;
             markdownContext.intent = null;
             const body = revealOnce(el("div", "annotation-body"), `custom:${key}`);
-            renderMarkdown(body, result.content);
+            if (result.coverage) renderInternalReviewBody(body, result);
+            else renderMarkdown(body, result.content);
             details.append(body);
         } else if (["queued", "running"].includes(result?.status)) {
             details.append(aiPlaceholder(`custom:${key}`, result.status === "queued" ? "Waiting for the previous check…" : "Copilot is running this check…", 3));
@@ -3277,18 +3572,23 @@ function render() {
         renderCollection(model);
     }
     // Apply a server-side selection (an agent focus_item call) once; re-applying it on every render would override the user's own choice.
-    if (payload.selection?.id && payload.selection.id !== state.appliedServerSelection && state.selected?.id !== payload.selection.id) {
+    applyServerSelection(payload);
+    if (state.selected && payload.annotations?.[state.selected.id]) {
+        renderAnnotation(state.selected, payload.annotations[state.selected.id]);
+    }
+    if (state.source && !elements.source_panel.classList.contains("hidden")) renderSourceDecisions();
+    if (!state.selected) renderEmptyDetail();
+}
+
+function applyServerSelection(payload) {
+    const model = payload.model;
+    if (model && payload.selection?.id && payload.selection.id !== state.appliedServerSelection && state.selected?.id !== payload.selection.id) {
         state.appliedServerSelection = payload.selection.id;
         const all = [...model.nodes, ...model.edges, ...(model.package_changes || []), ...(model.attention || []), ...(payload.generated_observations || [])];
         const selected = all.find((item) => item.id === payload.selection.id) || { id: payload.selection.id, kind: "evidence" };
         state.selected = selected;
         renderDetail(selected);
     }
-    if (state.selected && payload.annotations?.[state.selected.id]) {
-        renderAnnotation(state.selected, payload.annotations[state.selected.id]);
-    }
-    if (state.source && !elements.source_panel.classList.contains("hidden")) renderSourceDecisions();
-    if (!state.selected) renderEmptyDetail();
 }
 
 function showError(error) {
@@ -3445,7 +3745,7 @@ document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click",
     state.sourceTab = tab.dataset.tab;
     const current = state.sourceHistory.entries[state.sourceHistory.index];
     if (current) current.tab = state.sourceTab;
-    renderSource();
+    renderSource().catch(showError);
 }));
 
 function updateReviewApply() {
@@ -3458,6 +3758,7 @@ function updateReviewApply() {
 }
 
 function resetReviewNavigation() {
+    sourceRowCache.clear();
     state.selectionEpoch += 1;
     state.customOpenKeys.clear();
     state.selected = null;
@@ -3768,6 +4069,7 @@ function connectEvents() {
     events.addEventListener("state", (event) => {
         if (state.eventSource !== events) return;
         const update = JSON.parse(event.data);
+        const previousOverview = state.payload?.annotations?.overview?.body;
         state.eventSnapshotReceived = true;
         const payload = update.partial ? { ...state.payload, ...update } : update;
         if (payload.type === "repository-changed") {
@@ -3781,6 +4083,16 @@ function connectEvents() {
             && payload.model && !payload.loading) resetReviewNavigation();
         connectionFeedback.connected();
         state.payload = payload;
+        if (payload.type === "selection") {
+            applyServerSelection(payload);
+            return;
+        }
+        if (payload.type === "annotation") {
+            if (previousOverview !== payload.annotations?.overview?.body) renderChangeBrief();
+            const annotation = payload.annotations?.[state.selected?.id];
+            if (annotation) renderAnnotation(state.selected, annotation);
+            return;
+        }
         if (["connected", "refreshed", "repository-changed"].includes(state.payload.type)) loadCustomPrompts();
         render();
         if (state.payload.type === "session-history" && state.source?.path) {

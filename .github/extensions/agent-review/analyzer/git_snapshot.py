@@ -5,10 +5,11 @@ import difflib
 import json
 import os
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -200,6 +201,39 @@ class Snapshot:
     base_ref: str | None
     baseline: dict[str, bytes]
     current: dict[str, bytes]
+    _large_diffs: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
+
+    def _large_diff(self, path: str, before: bytes, after: bytes) -> str:
+        if path not in self._large_diffs:
+            # Repeated lines make difflib's exact matcher quadratic. Git handles these
+            # snapshots without consulting the live worktree or repository diff drivers.
+            with tempfile.TemporaryDirectory(prefix="agent-review-diff-") as directory:
+                root = Path(directory)
+                (root / "before").write_bytes(before)
+                (root / "after").write_bytes(after)
+                process = subprocess.run(
+                    ["git", "-c", "core.autocrlf=false", "diff", "--no-index", "--no-ext-diff",
+                     "--no-textconv", "--text", "--unified=4", "--", "before", "after"],
+                    cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                )
+                if process.returncode not in (0, 1):
+                    raise RuntimeError(process.stderr.decode("utf-8", errors="replace").strip()
+                                       or f"Unable to diff saved source: {path}")
+                lines = process.stdout.decode("utf-8", errors="replace").splitlines(keepends=True)
+                patch = []
+                in_hunk = False
+                for line in lines:
+                    in_hunk = in_hunk or line.startswith("@@ ")
+                    if not in_hunk:
+                        if line.startswith(("diff --git ", "index ")):
+                            continue
+                        if line.startswith("--- "):
+                            line = f"--- a/{path}\n"
+                        elif line.startswith("+++ "):
+                            line = f"+++ b/{path}\n"
+                    patch.append(line)
+                self._large_diffs[path] = "".join(patch)
+        return self._large_diffs[path]
 
     def source_files(self, changes: list[dict[str, object]]) -> dict[str, dict[str, object]]:
         result: dict[str, dict[str, object]] = {}
@@ -219,6 +253,8 @@ class Snapshot:
                 continue
             if change["status"] == "unchanged":
                 diff = ""
+            elif path in self._large_diffs:
+                diff = self._large_diffs[path]
             elif not base or not current:
                 diff = _complete_file_diff(path, current or base, added=not base)
             else:
@@ -260,15 +296,33 @@ class Snapshot:
                 removed = len(before_lines)
                 removed_lines = list(range(1, removed + 1))
             elif status == "modified":
-                for tag, old_start, old_end, new_start, new_end in difflib.SequenceMatcher(
-                    None, before_lines, after_lines, autojunk=False
-                ).get_opcodes():
-                    if tag in ("insert", "replace"):
-                        added += new_end - new_start
-                        added_lines.extend(range(new_start + 1, new_end + 1))
-                    if tag in ("delete", "replace"):
-                        removed += old_end - old_start
-                        removed_lines.extend(range(old_start + 1, old_end + 1))
+                if max(len(before_lines), len(after_lines)) > 5000:
+                    old_line = new_line = None
+                    for line in self._large_diff(path, before, after).splitlines():
+                        if line.startswith("@@ "):
+                            old_range, new_range = line.split()[1:3]
+                            old_line = int(old_range[1:].split(",")[0])
+                            new_line = int(new_range[1:].split(",")[0])
+                        elif old_line is not None and line.startswith("-"):
+                            removed_lines.append(old_line)
+                            old_line += 1
+                        elif new_line is not None and line.startswith("+"):
+                            added_lines.append(new_line)
+                            new_line += 1
+                        elif old_line is not None and line.startswith(" "):
+                            old_line += 1
+                            new_line += 1
+                    added, removed = len(added_lines), len(removed_lines)
+                else:
+                    for tag, old_start, old_end, new_start, new_end in difflib.SequenceMatcher(
+                        None, before_lines, after_lines, autojunk=False
+                    ).get_opcodes():
+                        if tag in ("insert", "replace"):
+                            added += new_end - new_start
+                            added_lines.extend(range(new_start + 1, new_end + 1))
+                        if tag in ("delete", "replace"):
+                            removed += old_end - old_start
+                            removed_lines.extend(range(old_start + 1, old_end + 1))
             records.append(
                 {
                     "path": path,

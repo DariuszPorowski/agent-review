@@ -3,6 +3,24 @@ import { readFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listReviewTargets } from "./review-target.mjs";
+import { reviewSnapshotKey } from "./web/review-ledger.mjs";
+
+const browserModels = new WeakMap();
+
+export function browserSnapshot(snapshot) {
+    if (!snapshot.model) return snapshot;
+    const model = snapshot.model;
+    const target = JSON.stringify(snapshot.review_target);
+    let cached = browserModels.get(model);
+    if (!cached || cached.target !== target) {
+        const sources = Object.fromEntries(Object.entries(model.source_files || {}).map(([path, source]) =>
+            [path, { binary: Boolean(source.binary) }]));
+        cached = { target, value: { ...model, source_files: sources,
+            review_snapshot_key: reviewSnapshotKey(model, snapshot.review_target) } };
+        browserModels.set(model, cached);
+    }
+    return { ...snapshot, model: cached.value };
+}
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), "web");
 const staticFiles = new Map([
@@ -57,7 +75,15 @@ export function startReviewServer(state, options = {}) {
     const clients = new Set();
     const unsubscribe = state.subscribe((event) => {
         if (!clients.size) return;
-        let update = event;
+        let update = browserSnapshot(event);
+        if (["selection", "annotation"].includes(event.type)) {
+            update = { type: event.type, partial: true, review_generation: event.review_generation,
+                ...(event.type === "selection" ? { selection: event.selection } : { annotations: event.annotations }) };
+        }
+        if (["rule-check-progress", "custom-analysis-progress"].includes(event.type)) {
+            update = { type: event.type, partial: true,
+                ...(event.type === "rule-check-progress" ? { rule_check: event.rule_check } : { custom_analyses: event.custom_analyses }) };
+        }
         if (["progress", "refresh-started", "worktree-changed"].includes(event.type)) {
             update = Object.fromEntries(["type", "loading", "cancelled", "disposed", "error", "progress",
                 "review_target", "review_generation", "repo_root", "analyzed_at", "restored_from_cache",
@@ -93,7 +119,7 @@ export function startReviewServer(state, options = {}) {
                 return;
             }
             if (req.method === "GET" && pathname === "/api/state") {
-                sendJson(res, state.snapshot());
+                sendJson(res, browserSnapshot(state.snapshot()));
                 return;
             }
             if (req.method === "GET" && pathname === "/api/source") {
@@ -117,11 +143,20 @@ export function startReviewServer(state, options = {}) {
                 const input = await readJson(req);
                 const snapshot = options.changeRepository
                     ? await options.changeRepository(input) : await state.setRepository(input);
-                sendJson(res, { ok: true, ...snapshot });
+                sendJson(res, { ok: true, ...browserSnapshot(snapshot) });
                 return;
             }
             if (req.method === "POST" && pathname === "/api/rule-check") {
-                sendJson(res, { check: await state.runRuleCheck({ force: true }) });
+                const input = await readJson(req);
+                if (input.force !== undefined && typeof input.force !== "boolean") throw new Error("force must be a boolean.");
+                sendJson(res, { check: await state.runRuleCheck({ force: input.force ?? true }) });
+                return;
+            }
+            if (req.method === "POST" && pathname === "/api/internal-reviews/cancel") {
+                const input = await readJson(req);
+                if (typeof input.scope !== "string" || !input.scope) throw new Error("A review scope is required.");
+                state.stopInternalReviews(input.scope);
+                sendJson(res, { ok: true });
                 return;
             }
             if (req.method === "GET" && pathname === "/api/test-run/plan") {
@@ -186,7 +221,7 @@ export function startReviewServer(state, options = {}) {
                     Connection: "keep-alive",
                 });
                 res.write(": connected\n\n");
-                res.write(`event: state\ndata: ${JSON.stringify({ type: "connected", ...state.snapshot() })}\n\n`);
+                res.write(`event: state\ndata: ${JSON.stringify({ type: "connected", ...browserSnapshot(state.snapshot()) })}\n\n`);
                 clients.add(res);
                 const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
                 req.on("close", () => {
@@ -196,7 +231,7 @@ export function startReviewServer(state, options = {}) {
                 return;
             }
             if (req.method === "POST" && pathname === "/api/cancel") {
-                sendJson(res, { ok: true, ...await state.cancel() });
+                sendJson(res, { ok: true, ...browserSnapshot(await state.cancel()) });
                 return;
             }
             if (req.method === "POST" && pathname === "/api/refresh") {

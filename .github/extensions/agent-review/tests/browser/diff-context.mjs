@@ -69,6 +69,14 @@ try {
         assert.match(await definition.getAttribute("class"), /context.*focus-line/);
         assert.equal(await page.locator('#source .code-row[data-new-line="1"]').count(), 1);
         assert.equal(await page.locator("#source-context-notice").isVisible(), false);
+        const gap = page.locator("#source .diff-gap-toggle").first();
+        await gap.click();
+        assert.equal(await page.locator('#source .code-row[data-new-line="1"]').count(), 1,
+            "expanding a referenced gap does not duplicate its preview lines");
+        await gap.click();
+        assert.equal(await page.locator('#source .code-row[data-new-line="1"]').count(), 1,
+            "collapsing retains the selected unchanged definition");
+        assert.match(await page.locator('#source .code-row[data-new-line="1"]').getAttribute("class"), /focus-start/);
         const bothGutters = await definition.evaluate((row) =>
             row.querySelector("code").getBoundingClientRect().left - row.getBoundingClientRect().left);
         assert.ok(bothGutters <= 100, `two-sided gutter stays compact: ${bothGutters}px`);
@@ -80,6 +88,7 @@ try {
             path: join(process.env.AGENT_REVIEW_SCREENSHOT_DIR, `source-context-${theme}.png`), fullPage: true,
         });
         await page.click("#source-close");
+        await page.locator("#zoom-out").click();
         const component = state.model.nodes.find((node) => node.id === removed.component_id);
         const module = state.model.nodes.find((node) => node.id === removed.module_id);
         await page.locator(`.node[aria-label^="${component.name},"]`).click();
