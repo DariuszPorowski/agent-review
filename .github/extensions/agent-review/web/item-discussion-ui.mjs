@@ -6,12 +6,14 @@ const node = (tag, text, className = "") => {
 };
 
 export class ItemDiscussionPane {
-    constructor(root, { api, sourceLink, notify, latest = () => null }) {
+    constructor(root, { api, sourceLink, notify, latest = () => null, renderContent = null, viewedLocation = () => null }) {
         this.root = root;
         this.api = api;
         this.sourceLink = sourceLink;
         this.notify = notify;
         this.latest = latest;
+        this.renderContent = renderContent;
+        this.viewedLocation = viewedLocation;
         this.epoch = 0;
         this.drafts = new Map();
         this.messageNodes = new Map();
@@ -33,6 +35,12 @@ export class ItemDiscussionPane {
         this.input.addEventListener("input", () => {
             this.input.setCustomValidity("");
             if (this.draftKey) this.drafts.set(this.draftKey, this.input.value);
+        });
+        this.input.addEventListener("keydown", (event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                event.preventDefault();
+                if (!this.send.disabled) this.form.requestSubmit();
+            }
         });
         this.send = node("button", "Send");
         this.send.type = "submit";
@@ -90,7 +98,7 @@ export class ItemDiscussionPane {
         const scroll = this.messages.scrollTop;
         const messages = [];
         for (const message of thread.messages) {
-            const signature = JSON.stringify([message.status, message.content, message.limitation, message.error, message.citations, message.evidence_scope]);
+            const signature = JSON.stringify([message.status, message.content, message.limitation, message.error, message.citations, message.evidence_scope, message.location]);
             const existing = this.messageNodes.get(message.id);
             if (existing?.signature === signature) {
                 messages.push(existing.node);
@@ -98,12 +106,22 @@ export class ItemDiscussionPane {
             }
             const article = node("article", "", `discussion-message discussion-${message.role}`);
             article.append(node("strong", message.role === "user" ? "You" : "Copilot"));
-            if (message.content) article.append(node("p", message.content));
+            if (message.location) article.append(this.sourceLink(message.location));
+            if (message.content) {
+                if (message.role === "assistant" && this.renderContent) {
+                    const content = node("div", "", "discussion-content");
+                    this.renderContent(content, message.content);
+                    article.append(content);
+                } else article.append(node("p", message.content));
+            }
             if (message.limitation) article.append(node("p", `Evidence limitation: ${message.limitation}`, "muted"));
             if (message.evidence_scope) article.append(node("p",
                 `Source excerpts supplied: ${message.evidence_scope.supplied_files} files. Saved snapshot: ${message.evidence_scope.snapshot_files} files` +
                 `${message.evidence_scope.section_files ? `; this section contains ${message.evidence_scope.section_files} files` : ""}. ` +
                 "Not supplied to this answer does not mean missing from the snapshot.", "muted"));
+            else if (message.role === "assistant" && message.status === "complete" && this.item?.kind === "section") {
+                article.append(node("p", "Earlier answer: supplied-context and saved-snapshot counts were not recorded. Verify any availability claims.", "muted"));
+            }
             for (const citation of message.citations || []) article.append(this.sourceLink(citation));
             if (["stopped", "error"].includes(message.status)) article.append(node("p",
                 `${message.status === "stopped" ? "Stopped" : "Could not complete"}: ${message.error || "No complete answer was produced."}`, "error"));
@@ -142,7 +160,7 @@ export class ItemDiscussionPane {
         const question = this.input.value;
         try {
             const response = await this.api("/api/discussion", { method: "POST",
-                body: JSON.stringify({ id: item.id, question }) });
+                body: JSON.stringify({ id: item.id, question, location: this.viewedLocation() }) });
             if (this.drafts.get(key) === question) this.drafts.delete(key);
             if (this.item !== item) return;
             if (this.input.value === question) this.input.value = "";

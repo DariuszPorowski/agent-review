@@ -754,6 +754,20 @@ marker path { fill: var(--cp-border-strong); }
 .graph-controls { flex-wrap: wrap; min-width: 0; }
 .source-heading, .source-heading > div { min-width: 0; }
 .queue-item > .link-button { margin: 0 8px 6px; font-size: 12px; }
+.signal-label { border: 1px solid var(--cp-border); border-radius: 6px; padding: 2px 6px; color: var(--cp-text-muted); font-size: 11px; font-weight: 400; }
+.review-card.signal-priority { border-left-color: var(--cp-border); }
+.tablist { flex-wrap: wrap; max-width: 100%; }
+#source-impact, #source-section, #source-focus, #source-location, #review-command-open { min-height: 32px; padding: 5px 10px; border: 1px solid var(--cp-border); border-radius: 6px; color: var(--cp-text); background: var(--cp-surface); cursor: pointer; }
+#source-focus[aria-pressed="true"] { color: var(--cp-link); border-color: var(--cp-link); }
+.review-source-focus .source-side, .review-source-focus #source-risk { display: none !important; }
+.review-source-focus .source-body { grid-template-columns: minmax(0, 1fr); }
+.source-panel.no-source #source-focus, .source-panel.no-source #source-location { display: none; }
+.review-command-results { list-style: none; padding: 0; max-height: 50vh; overflow: auto; }
+.review-command-results button { display: grid; gap: 4px; width: 100%; text-align: left; padding: 10px; border: 0; border-bottom: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text); cursor: pointer; overflow-wrap: anywhere; }
+.review-command-results button:hover, .review-command-results button:focus-visible { background: var(--cp-surface-soft); outline: 2px solid var(--cp-link); outline-offset: -2px; }
+#review-command-query { width: 100%; margin-top: 6px; padding: 8px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); color: var(--cp-text); font: inherit; }
+.discussion-content pre, .annotation-body pre { max-width: 100%; overflow: auto; padding: 8px; background: var(--cp-surface-soft); }
+.annotation-more { margin-top: 10px; }
 .source-chunk { content-visibility: auto; contain-intrinsic-block-size: auto 2000px; }
 .code-row { display: grid; grid-template-columns: calc(var(--source-line-digits, 4) * 1ch + 8px) calc(var(--source-line-digits, 4) * 1ch + 8px) 16px minmax(max-content, 1fr); min-height: 20px; }
 .code-row > span, .code-row > code { padding: 1px 8px; white-space: pre; }
@@ -781,7 +795,7 @@ marker path { fill: var(--cp-border-strong); }
 }
 .code-row.focus-line.focus-start.focus-end { border-radius: .625rem; }
 .code-row.focus-line.focus-start::after {
-  content: "Relevant to finding";
+  content: "Selected range";
   position: absolute;
   right: 8px;
   top: 1px;

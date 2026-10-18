@@ -121,6 +121,24 @@ test("item conversations persist and never silently follow another snapshot", as
         assert.equal(thread.commit, "one");
     } finally { await rm(workspace, { recursive: true, force: true }); }
 });
+test("questions carry validated viewed ranges without changing their pinned item", async () => {
+    const state = new ReviewState("C:\\repo", { generateDiscussion: async (input) => {
+        assert.deepEqual(input.viewed_location, { path: "a.js", line: 1, side: "base" });
+        const evidence = input.evidence.find((item) => item.side === "base");
+        return { answer: "This is the saved base.", limitation: "",
+            citations: [{ evidence_id: evidence.id, line: 1 }], requests: [] };
+    } });
+    state.model = { ...model, source_files: { "a.js": { current: "new", baseline: "old" } },
+        metadata: {}, changes: [{ path: "a.js", status: "modified" }] };
+    const thread = await state.askDiscussion({ id: "file:a.js", question: "What is this line?",
+        location: { path: "a.js", line: 1, side: "base" } });
+    await state.discussionRuns.get(thread.id);
+    assert.equal(thread.messages.at(-1).status, "complete");
+    assert.equal(thread.item_id, "file:a.js");
+    assert.equal(thread.messages[0].location.side, "base");
+    await assert.rejects(state.askDiscussion({ id: "file:a.js", question: "Nope",
+        location: { path: "../outside.js", line: 1, side: "current" } }), /saved source range/);
+});
 
 test("an item accepts only one active generation, and stop preserves an explicit stopped answer", async () => {
     const state = new ReviewState("C:\\repo", { generateDiscussion: async () => new Promise(() => {}) });

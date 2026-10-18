@@ -1016,7 +1016,7 @@ export class ReviewState {
         }
     }
 
-    async askDiscussion({ id, question }) {
+    async askDiscussion({ id, question, location = null }) {
         if (!this.model || this.loading) throw new Error("Wait for the saved review to finish.");
         if (typeof id !== "string" || !id) throw new Error("Select an item to discuss.");
         if (typeof question !== "string" || !question.trim() || question.length > 4000) {
@@ -1025,6 +1025,18 @@ export class ReviewState {
         if (!this.generateDiscussion) throw new Error("Copilot discussion is unavailable in this provider.");
         const model = this.model;
         const context = this.contextFor(id);
+        if (location) {
+            if (typeof location.path !== "string" || !Object.hasOwn(model.source_files || {}, location.path)
+                || !Number.isSafeInteger(location.line) || location.line < 1 || !["base", "current"].includes(location.side)) {
+                throw new Error("The discussion location must identify a saved source range.");
+            }
+            const source = await this.sourceForPath(location.path);
+            const text = location.side === "base" ? source.base : source.current;
+            if (typeof text !== "string" || location.line > text.split(/\r\n|\r|\n/).length) {
+                throw new Error("The viewed discussion location is not available in this snapshot.");
+            }
+            context.discussion_location = { path: location.path, line: location.line, side: location.side };
+        }
         context.test_evidence = decisionPromptContext(this.decisionMap,
             callablesForSubject(this.decisionMap, model, context.subject),
             { maxCallables: 8, maxEntries: 12, maxCharacters: 5000, run: this.promptTestRun() });
@@ -1036,7 +1048,8 @@ export class ReviewState {
         this.discussionRuns.set(thread.id, reservation);
         const history = [...thread.messages];
         const message = { id: randomUUID(), role: "assistant", content: "", status: "generating", activity: [], citations: [] };
-        thread.messages.push({ id: randomUUID(), role: "user", content: question.trim(), status: "complete" }, message);
+        thread.messages.push({ id: randomUUID(), role: "user", content: question.trim(), status: "complete",
+            ...(context.discussion_location ? { location: context.discussion_location } : {}) }, message);
         try { await this.saveDiscussion(thread); }
         catch (error) {
             thread.messages.splice(history.length);

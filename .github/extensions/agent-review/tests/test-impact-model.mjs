@@ -60,3 +60,8 @@ test("evidence and package findings retain an explicit focus instead of becoming
     assert.ok(slice.gaps.some((gap) => /package example/.test(gap)));
     assert.ok(!slice.gaps.some((gap) => /Select a changed/.test(gap)));
 });
+test("an unchanged selected consumer is not mislabeled as changed", () => {
+    const slice = impactSlice(model(), "caller");
+    assert.equal(slice.nodes.find((node) => node.id === "caller").impact_role, "Selected focus");
+    assert.equal(slice.counts["Selected focus"], 1);
+});

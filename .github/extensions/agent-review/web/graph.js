@@ -29,7 +29,8 @@ function graphHeight(nodeCount, width, nodes = []) {
         if (width < 650) return Math.max(440, nodeCount * NODE_CELL_HEIGHT);
         const groups = new Map();
         for (const node of nodes) {
-            const group = ["Dependency", "Changed focus"].includes(node.impact_role) ? node.impact_role : "consumer";
+            const group = node.impact_role === "Selected focus" ? "Changed focus"
+                : ["Dependency", "Changed focus"].includes(node.impact_role) ? node.impact_role : "consumer";
             groups.set(group, (groups.get(group) || 0) + 1);
         }
         return Math.max(440, Math.max(...groups.values()) * NODE_CELL_HEIGHT);
@@ -41,8 +42,8 @@ function graphHeight(nodeCount, width, nodes = []) {
 function layout(nodes, width, height) {
     if (nodes.some((node) => node.impact_role)) {
         const groups = [nodes.filter((node) => node.impact_role === "Dependency"),
-            nodes.filter((node) => node.impact_role === "Changed focus"),
-            nodes.filter((node) => !["Dependency", "Changed focus"].includes(node.impact_role))];
+            nodes.filter((node) => ["Changed focus", "Selected focus"].includes(node.impact_role)),
+            nodes.filter((node) => !["Dependency", "Changed focus", "Selected focus"].includes(node.impact_role))];
         let offset = 0;
         return new Map(groups.flatMap((group, lane) => {
             const points = group.map((node, index) => [node.id, savedPositions.get(`impact:${node.id}`) || {

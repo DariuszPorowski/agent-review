@@ -65,7 +65,8 @@ export function impactSlice(model, id, { depth = 1, direction = "both", maxNodes
     const omitted = new Set(), boundary = new Set();
     for (const seed of seeds) {
         if (selected.size >= maxNodes) { omitted.add(seed); continue; }
-        selected.set(seed, { ...index.nodes.get(seed), impact_role: "Changed focus" });
+        selected.set(seed, { ...index.nodes.get(seed),
+            impact_role: index.nodes.get(seed).change === "unchanged" ? "Selected focus" : "Changed focus" });
         paths.set(seed, []);
     }
     for (const mode of direction === "both" ? ["consumers", "dependencies"] : [direction]) {
@@ -112,6 +113,6 @@ export function impactSlice(model, id, { depth = 1, direction = "both", maxNodes
     if (index.unsupported) gaps.push(`${index.unsupported} repository relationships lack resolved endpoints or saved evidence and are not drawn.`);
     return { seed_ids: seeds, nodes: [...selected.values()], edges: [...edges.values()],
         paths: Object.fromEntries(paths), gaps, omitted: omitted.size, boundary: boundary.size,
-        counts: Object.fromEntries(["Changed focus", "Potential consumer", "Dependency", "Related test"]
+        counts: Object.fromEntries(["Changed focus", "Selected focus", "Potential consumer", "Dependency", "Related test"]
             .map((role) => [role, [...selected.values()].filter((node) => node.impact_role === role).length])) };
 }

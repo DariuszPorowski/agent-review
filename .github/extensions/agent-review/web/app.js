@@ -6,6 +6,8 @@ import { resolveSourceReference } from "/source-references.mjs";
 import { unchangedDiffContext, diffSegments } from "/diff-context.mjs";
 import { impactSlice } from "/impact-model.mjs";
 import { ItemDiscussionPane } from "/item-discussion-ui.mjs";
+import { parseReviewLocation, reviewLocation } from "/review-location.mjs";
+import { annotationSections, conciseReviewText, reviewCommands, reviewItemEvidence, reviewSignal } from "/review-presentation.mjs";
 import { isReviewSymbol, isTestPath, languageForPath } from "/languages.mjs";
 import { ConnectionFeedback } from "/connection-feedback.mjs";
 import { describeAnalysisWarning } from "/analysis-limitations.mjs";
@@ -52,6 +54,7 @@ const elements = Object.fromEntries([
     "status", "refresh", "cancel-analysis", "analysis-cancelled", "source-context-notice", "connection-notice", "reconnect", "worktree-notice", "worktree-notice-text", "worktree-reanalyze", "error", "analysis-progress", "progress-phase", "progress-message", "progress-percent",
     "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize", "impact-view", "source-impact",
     "show-evidence", "show-discussion", "item-discussion", "sections-view", "source-section",
+    "source-focus", "source-location", "review-command-open", "review-command-palette", "review-command-close", "review-command-query", "review-command-count", "review-command-results",
     "graph", "level-label", "graph-title", "zoom-out", "changed-only", "review-search", "detail-toggle", "detail", "detail-close", "source-panel", "source-title",
     "source-provenance", "source-decisions", "source-annotation", "source-risk", "source-close", "source", "source-ruler", "source-back", "source-forward",
     "session-history-panel", "session-history-title", "session-history-meta", "session-history-close", "session-transcript",
@@ -69,6 +72,8 @@ const connectionFeedback = new ConnectionFeedback({
 });
 const discussionPane = new ItemDiscussionPane(elements.item_discussion, {
     api, notify: showError, latest: () => state.payload?.discussion_update,
+    renderContent: (container, text) => renderMarkdown(container, text, { sourceReferences: false }),
+    viewedLocation: viewedSourceLocation,
     sourceLink: (citation) => sourceReferenceButton(
         `${citation.path}:${citation.line}${citation.side === "base" ? " (base)" : ""}`,
         { path: citation.path, lines: [citation.line], side: citation.side }),
@@ -85,7 +90,222 @@ function setDiscussionMode(active) {
     }
 }
 
+function renderSectionEvidence() {
+    const section = state.sectionData?.sections.find((section) => section.id === state.selected?.id);
+    if (!section || !state.source) return false;
+    const panel = elements.source_annotation;
+    panel.replaceChildren(el("h3", "", section.title),
+        el("p", "muted", section.summary_citations.length ? "Section-level AI interpretation; verify the cited source." : "Source-derived section context, not a defect finding."),
+        el("p", "", section.summary),
+        el("p", "muted", `Viewed source: ${state.source.path}:${state.source.start_line || 1}. The section contains ${countLabel(section.ranges.length, "source range")}.`));
+    for (const citation of section.summary_citations) panel.append(sourceReferenceButton(
+        `${citation.path}:${citation.line}`, { path: citation.path, lines: [citation.line], side: citation.side }));
+    panel.classList.remove("hidden");
+    return true;
+}
+
+function rememberSourceReturnFocus() {
+    const active = document.activeElement;
+    if (!active || active === document.body || elements.source_panel.contains(active)
+        || active.closest("#detail, dialog")) return;
+    state.sourceReturnFocus = active;
+    state.sourceOriginItemId = active.closest("[data-item-id]")?.dataset.itemId || state.selected?.id || null;
+}
+
+function setSourceFocus(active) {
+    if (active && (!state.source || elements.source_focus.disabled)) {
+        showError(new Error("Open a saved source range before focusing code."));
+        return;
+    }
+    state.sourceFocused = active;
+    document.body.classList.toggle("review-source-focus", active);
+    elements.source_focus.setAttribute("aria-pressed", String(active));
+    elements.source_focus.textContent = active ? "Exit focus" : "Focus code";
+}
+
+elements.source_focus.addEventListener("click", () => setSourceFocus(!state.sourceFocused));
+
+const commandCatalogs = new WeakMap();
+function focusedReviewItem() {
+    if (!state.payload?.model) return null;
+    const active = document.activeElement;
+    const sectionId = active.closest?.(".section-card")?.dataset.sectionId;
+    const section = state.sectionData?.sections.find((section) => section.id === sectionId);
+    if (section) return { id: section.id, kind: "section", title: section.title, path: section.ranges[0].path };
+    const id = active.closest?.("[data-item-id]")?.dataset.itemId || active.closest?.("[data-node-id]")?.dataset.nodeId;
+    if (id) return [...state.payload.model.nodes, ...state.payload.model.attention || [],
+        ...state.payload.model.package_changes || [], ...state.payload.model.package_dependencies || [],
+        ...state.payload.generated_observations || []].find((item) => item.id === id) || state.selected;
+    return state.selected || (state.source ? { id: `file:${state.source.path}`, kind: "file", path: state.source.path, name: state.source.path } : null);
+}
+
+function viewedSourceLocation() {
+    if (!state.source || elements.source_panel.classList.contains("hidden")) return null;
+    const selection = window.getSelection();
+    const selected = !selection?.isCollapsed && selection?.anchorNode?.parentElement?.closest(".code-row");
+    const box = elements.source.getBoundingClientRect();
+    const focus = elements.source.querySelector(".focus-start");
+    const focusBox = focus?.getBoundingClientRect();
+    const focused = focusBox && focusBox.bottom > Math.max(0, box.top)
+        && focusBox.top < Math.min(innerHeight, box.bottom) ? focus : null;
+    const visible = document.elementFromPoint(Math.min(innerWidth - 8, box.left + 80),
+        Math.max(8, Math.min(innerHeight - 8, box.top + 12)))?.closest(".code-row");
+    const row = selected && elements.source.contains(selected) ? selected : focused || visible;
+    if (!row && state.source.viewedLocationTab === state.sourceTab && state.source.viewedLocation) {
+        return state.source.viewedLocation;
+    }
+    const preferredSide = state.source.focus_side || "current";
+    const side = state.sourceTab === "base" ? "base" : state.sourceTab === "current" ? "current"
+        : row?.dataset[preferredSide === "base" ? "oldLine" : "newLine"] ? preferredSide
+        : row?.dataset.newLine ? "current" : row?.dataset.oldLine ? "base" : preferredSide;
+    const line = Number(row?.dataset[side === "base" ? "oldLine" : "newLine"])
+        || Number(row?.dataset.gap?.split("-")[0]) || Number(state.source.start_line) || 1;
+    if (typeof state.source[side] !== "string") return null;
+    state.source.viewedLocation = { path: state.source.path, line, side };
+    state.source.viewedLocationTab = state.sourceTab;
+    return state.source.viewedLocation;
+}
+
+function renderReviewCommands() {
+    const model = state.payload?.model;
+    if (!model) return;
+    if (!commandCatalogs.has(model)) commandCatalogs.set(model, reviewCommands(model));
+    const query = elements.review_command_query.value.trim().toLowerCase();
+    const matches = commandCatalogs.get(model).filter((item) =>
+        `${item.title} ${item.path || ""} ${item.reason || ""}`.toLowerCase().includes(query))
+        .sort((a, b) => Number(b.title.toLowerCase().startsWith(query)) - Number(a.title.toLowerCase().startsWith(query))
+            || a.title.localeCompare(b.title));
+    elements.review_command_count.textContent = `Showing ${Math.min(30, matches.length)} of ${matches.length} matching review items`;
+    const rows = [];
+    for (const item of matches.slice(0, 30)) {
+        const row = el("li", "");
+        const open = el("button", "");
+        open.type = "button";
+        open.append(el("strong", "", item.title), el("small", "muted", `${item.label} · ${item.path || "Saved review evidence"}`));
+        open.addEventListener("click", async () => {
+            elements.review_command_palette.close();
+            state.sourceReturnFocus = elements.review_command_open;
+            try {
+                if (item.kind === "file") await selectFile(model.changes.find((change) => `file:${change.path}` === item.id), false);
+                else await selectItem(item, false, false);
+                if (state.selected?.id === item.id && state.source) elements.source.focus({ preventScroll: true });
+            } catch (error) { showError(error); }
+        });
+        open.addEventListener("keydown", (event) => {
+            if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+            event.preventDefault();
+            const buttons = [...elements.review_command_results.querySelectorAll("button")];
+            const next = buttons.indexOf(open) + (event.key === "ArrowDown" ? 1 : -1);
+            (buttons[next] || elements.review_command_query).focus();
+        });
+        row.append(open);
+        rows.push(row);
+    }
+    if (!rows.length) rows.push(el("li", "muted", "No files, symbols, or findings match this query."));
+    elements.review_command_results.replaceChildren(...rows);
+}
+
+function openReviewCommands() {
+    if (!state.payload?.model) {
+        showError(new Error("Wait for the saved review to load before searching it."));
+        return;
+    }
+    state.commandReturnFocus = document.activeElement === document.body ? elements.review_command_open : document.activeElement;
+    elements.review_command_query.value = "";
+    renderReviewCommands();
+    if (!elements.review_command_palette.open) elements.review_command_palette.showModal();
+    elements.review_command_query.focus();
+}
+
+elements.review_command_open.addEventListener("click", openReviewCommands);
+elements.review_command_close.addEventListener("click", () => elements.review_command_palette.close());
+elements.review_command_palette.addEventListener("close", () => {
+    if (state.commandReturnFocus?.isConnected) state.commandReturnFocus.focus({ preventScroll: true });
+});
+elements.review_command_palette.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    elements.review_command_palette.close();
+});
+elements.review_command_query.addEventListener("input", renderReviewCommands);
+elements.review_command_query.addEventListener("keydown", (event) => {
+    if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...elements.review_command_results.querySelectorAll("button")];
+    (event.key === "ArrowDown" ? buttons[0] : buttons.at(-1))?.focus();
+});
+
+elements.source_location.addEventListener("click", async () => {
+    if (!state.source || elements.source_location.disabled) return;
+    try {
+        const viewed = viewedSourceLocation();
+        if (!viewed) throw new Error("This snapshot side has no source location to copy.");
+        const snapshot = state.reviewLedgerStorageKey || reviewSnapshotKey(state.payload.model, state.payload.review_target);
+        const link = reviewLocation(location.href, { snapshot, item: state.selected?.id,
+            ...viewed, tab: state.sourceTab });
+        await navigator.clipboard.writeText(link);
+        elements.source_location.textContent = "Location copied";
+        setTimeout(() => { elements.source_location.textContent = "Copy location"; }, 1500);
+    } catch (error) { showError(new Error(`Unable to copy review location: ${error.message}`)); }
+});
+
+async function applyReviewLocation() {
+    if (!state.payload?.model || state.payload.loading || !location.hash) return;
+    const generation = state.payload.review_generation;
+    const key = `${generation}:${location.hash}`;
+    if (state.appliedReviewLocation === key) return;
+    state.appliedReviewLocation = key;
+    try {
+        const target = parseReviewLocation(location.hash);
+        if (!target) return;
+        const snapshot = state.reviewLedgerStorageKey || reviewSnapshotKey(state.payload.model, state.payload.review_target);
+        if (target.snapshot !== snapshot) throw new Error("This local link belongs to another source snapshot. Select the original saved target before reopening it; newer code was not substituted.");
+        if (!Object.hasOwn(state.payload.model.source_files || {}, target.path)) throw new Error("The linked path is not available in this saved snapshot.");
+        let item = [...state.payload.model.nodes, ...state.payload.model.attention || [], ...state.payload.model.package_changes || []]
+            .find((item) => item.id === target.item);
+        if (target.item?.startsWith("section:")) {
+            const data = await api("/api/review-sections");
+            if (state.payload.review_generation !== generation) return;
+            const section = data.sections.find((section) => section.id === target.item);
+            if (!section) throw new Error("The linked section is not available in this review.");
+            state.sectionData = data;
+            item = { id: section.id, kind: "section", title: section.title, path: target.path };
+        }
+        if (!item && target.item && !target.item.startsWith("file:")) {
+            if (state.payload.model.evidence?.[target.item]) item = { id: target.item, kind: "evidence", path: target.path };
+            else throw new Error("The linked review item is not available in this analysis.");
+        }
+        setDiscussionMode(false);
+        state.selected = item || { id: `file:${target.path}`, kind: "file", name: target.path, path: target.path };
+        state.sourceReturnFocus = elements.review_command_open;
+        markSelectedCards();
+        if (state.selected.kind === "file") {
+            renderEmptyDetail();
+            setDetailVisible(false);
+        } else renderDetail(state.selected);
+        const epoch = ++state.selectionEpoch;
+        const query = new URLSearchParams({ path: target.path, line: String(target.line), side: target.side });
+        if (await loadSource(query.toString(), epoch, target.tab)) elements.source.focus({ preventScroll: true });
+    } catch (error) {
+        if (state.payload.review_generation === generation) {
+            if (!elements.source_panel.classList.contains("hidden")) elements.source_close.click();
+            showError(error);
+            elements.error.tabIndex = -1;
+            elements.error.focus({ preventScroll: true });
+            elements.error.scrollIntoView({ block: "center" });
+        }
+    }
+}
+
+window.addEventListener("hashchange", () => {
+    state.appliedReviewLocation = null;
+    applyReviewLocation().catch(showError);
+});
+
 async function discussItem(item = state.selected) {
+    setSourceFocus(false);
+    rememberSourceReturnFocus();
     if (!item?.id) {
         showError(new Error("Select a review item or source range to discuss."));
         return;
@@ -109,6 +329,7 @@ async function discussItem(item = state.selected) {
         }
         elements.source_panel.classList.remove("hidden");
     }
+    viewedSourceLocation();
     setDiscussionMode(true);
     await discussionPane.open({ ...item, title }, state.payload?.review_generation);
 }
@@ -398,15 +619,26 @@ function renderCards(container, items, emptyText) {
     }
     for (const item of items) {
         const card = el("button", `review-card severity-${item.severity || item.change || "info"}`);
+        const signal = reviewSignal(item);
+        if (container === elements.attention) card.classList.add(`signal-${signal.kind}`);
         card.type = "button";
         const heading = el("div", "card-heading");
         heading.append(el("strong", "", item.title || item.name || item.id));
+        if (container === elements.attention) heading.append(el("span", "signal-label", signal.label));
         if (item.impact_score != null) {
             const priority = el("b", "impact-score", `Priority ${item.impact_score}/100`);
             priority.title = "Review priority based on change impact. This is not a vulnerability count or package security score.";
             heading.append(priority);
         }
-        card.append(heading, el("span", "card-body", item.id?.startsWith("package:") ? `${item.change} · Version ${packageVersionText(item)}` : item.body || item.reason || item.change || ""));
+        card.append(heading, el("span", "card-body", conciseReviewText(item.id?.startsWith("package:") ? `${item.change} · Version ${packageVersionText(item)}` : item.body || item.reason || item.change || "")));
+        if (container === elements.attention) {
+            const evidence = reviewItemEvidence(state.payload.model, item, state.payload.decision_map, state.payload.test_run);
+            card.append(el("small", "factor-line", countLabel(evidence.citations.length, "saved source citation")));
+            if (evidence.counts.confirmed) card.append(el("small", "factor-line",
+                `${evidence.counts.confirmed} paths executed by linked tests${evidence.counts.failing ? ` (${evidence.counts.failing} reached by failing tests)` : ""}`));
+            else if (evidence.counts.inferred) card.append(el("small", "factor-line",
+                `${countLabel(evidence.counts.inferred, "path")} with inferred test links; execution not established`));
+        }
         if (item.impact_factors?.length) card.append(el("small", "factor-line", item.impact_factors.join(" · ")));
         card.dataset.itemId = item.id;
         card.classList.toggle("is-selected", state.selected?.id === item.id || state.areaGroup?.id === item.id);
@@ -525,7 +757,14 @@ function markSelectedCards() {
 function openImpact(item = state.selected) {
     setDiscussionMode(false);
     const model = state.payload?.model;
-    if (!model) return;
+    if (!model) {
+        showError(new Error("Wait for the saved review to load before opening impact."));
+        return;
+    }
+    if (item?.kind === "section") {
+        const section = state.sectionData?.sections.find((section) => section.id === item.id);
+        item = section ? { id: section.subject_id } : { id: `file:${item.path}` };
+    }
     const seed = item?.node_id || item?.package_id || item?.target
         || item?.evidence_ids?.find((id) => model.evidence?.[id]?.path) || item?.id
         || model.attention?.find((finding) => finding.node_id)?.node_id
@@ -1154,7 +1393,7 @@ function renderChangeBrief() {
     );
     panel.append(grid);
     if (split.source > 50 && ratio < 0.15) {
-        panel.append(el("p", "brief-warning", "Little or no test code changed relative to source."));
+        panel.append(el("p", "muted", "Test/source churn is descriptive, not coverage evidence. Inspect linked paths and saved test execution results."));
     }
 
     const annotation = state.payload?.annotations?.overview;
@@ -1520,7 +1759,8 @@ async function refreshAttribution() {
     state.attribution = await fetchAttribution(state.source.path);
 }
 
-async function selectFile(change) {
+async function selectFile(change, annotate = true) {
+    rememberSourceReturnFocus();
     setDiscussionMode(false);
     const epoch = ++state.selectionEpoch;
     state.selected = {
@@ -1536,7 +1776,7 @@ async function selectFile(change) {
     setDetailVisible(false);
     try {
         if (await loadSource(`path=${encodeURIComponent(change.path)}`, epoch)) {
-            ensureAnnotation(state.selected, epoch);
+            if (annotate) ensureAnnotation(state.selected, epoch);
         }
     } catch (error) {
         if (epoch === state.selectionEpoch) showError(error);
@@ -1544,6 +1784,9 @@ async function selectFile(change) {
 }
 
 async function selectItem(item, notify = true, annotate = true) {
+    const sourceOpener = document.activeElement;
+    const keepSourceFocus = elements.source_panel.contains(sourceOpener);
+    rememberSourceReturnFocus();
     if (state.selected?.id !== item.id) setDiscussionMode(false);
     const epoch = ++state.selectionEpoch;
     state.selected = item;
@@ -1568,6 +1811,10 @@ async function selectItem(item, notify = true, annotate = true) {
         elements.source_panel.classList.add("hidden");
     }
     if (epoch !== state.selectionEpoch) return;
+    if (keepSourceFocus || document.activeElement === sourceOpener) {
+        const target = elements.source_panel.classList.contains("hidden") ? state.sourceReturnFocus : elements.source;
+        target?.focus({ preventScroll: true });
+    }
     if (annotate && (item.path || item.evidence_ids?.length || item.node_id || item.edge_id)) {
         ensureAnnotation(item, epoch);
     } else {
@@ -1735,26 +1982,29 @@ async function openSessionHistory(attribution) {
     }
 }
 
-function appendInlineMarkdown(container, text) {
+function appendInlineMarkdown(container, text, options = {}) {
     const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
     let offset = 0;
     for (const match of text.matchAll(pattern)) {
-        if (match.index > offset) appendTextWithSourceReferences(container, text.slice(offset, match.index));
+        if (match.index > offset) {
+            if (options.sourceReferences === false) container.append(document.createTextNode(text.slice(offset, match.index)));
+            else appendTextWithSourceReferences(container, text.slice(offset, match.index));
+        }
         const token = match[0];
         if (token.startsWith("**")) {
             const label = token.slice(2, -2);
             const intent = markdownContext.intent;
-            if (intent?.session_id && /^(Stated intent|Requested):?$/i.test(label.trim())) {
+            if (options.sourceReferences !== false && intent?.session_id && /^(Stated intent|Requested):?$/i.test(label.trim())) {
                 container.append(intentLink(label, intent));
             } else {
                 const strong = el("strong", "");
-                appendInlineMarkdown(strong, label);
+                appendInlineMarkdown(strong, label, options);
                 container.append(strong);
             }
         } else {
             const value = token.slice(1, -1);
-            const reference = parseSourceReference(value);
-            const symbol = reference ? null : resolveSymbolReference(state.payload?.model, value, markdownContext.subject);
+            const reference = options.sourceReferences === false ? null : parseSourceReference(value);
+            const symbol = options.sourceReferences === false || reference ? null : resolveSymbolReference(state.payload?.model, value, markdownContext.subject);
             if (reference) {
                 container.append(sourceReferenceButton(value, reference));
             } else if (symbol) {
@@ -1768,7 +2018,10 @@ function appendInlineMarkdown(container, text) {
         }
         offset = match.index + token.length;
     }
-    if (offset < text.length) appendTextWithSourceReferences(container, text.slice(offset));
+    if (offset < text.length) {
+        if (options.sourceReferences === false) container.append(document.createTextNode(text.slice(offset)));
+        else appendTextWithSourceReferences(container, text.slice(offset));
+    }
 }
 
 function parseSourceReference(value) {
@@ -1793,6 +2046,7 @@ function sourceReferenceButton(label, reference, title = null) {
         ? `Open ${reference.path} at line ${reference.lines.join(", ")}`
         : `Open ${reference.path}`);
     button.addEventListener("click", async () => {
+        rememberSourceReturnFocus();
         const epoch = ++state.selectionEpoch;
         const query = new URLSearchParams({ path: reference.path });
         if (reference.lines[0]) query.set("line", String(reference.lines[0]));
@@ -1825,14 +2079,15 @@ function appendTextWithSourceReferences(container, text) {
     if (offset < text.length) container.append(document.createTextNode(text.slice(offset)));
 }
 
-function renderMarkdown(container, markdown) {
+function renderMarkdown(container, markdown, options = {}) {
     const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
     let list = null;
     let paragraph = [];
+    let fenced = null;
     const flushParagraph = () => {
         if (!paragraph.length) return;
         const node = el("p", "");
-        appendInlineMarkdown(node, paragraph.join(" "));
+        appendInlineMarkdown(node, paragraph.join(" "), options);
         container.append(node);
         paragraph = [];
     };
@@ -1841,8 +2096,26 @@ function renderMarkdown(container, markdown) {
     };
     for (const rawLine of lines) {
         const line = rawLine.trim();
+        if (line.startsWith("```")) {
+            flushParagraph();
+            flushList();
+            if (fenced === null) fenced = [];
+            else {
+                const pre = el("pre", "");
+                pre.append(el("code", "", fenced.join("\n")));
+                container.append(pre);
+                fenced = null;
+            }
+            continue;
+        }
+        if (fenced !== null) { fenced.push(rawLine); continue; }
         if (!line) {
             flushParagraph();
+            if (fenced !== null) {
+                const pre = el("pre", "");
+                pre.append(el("code", "", fenced.join("\n")));
+                container.append(pre);
+            }
             flushList();
             continue;
         }
@@ -1853,7 +2126,7 @@ function renderMarkdown(container, markdown) {
                 container.append(list);
             }
             const item = el("li", "");
-            appendInlineMarkdown(item, line.replace(/^[-*]\s+/, ""));
+            appendInlineMarkdown(item, line.replace(/^[-*]\s+/, ""), options);
             list.append(item);
             continue;
         }
@@ -1862,7 +2135,7 @@ function renderMarkdown(container, markdown) {
             flushList();
             const level = Math.min(3, line.match(/^#+/)[0].length);
             const heading = el(`h${level}`, "");
-            appendInlineMarkdown(heading, line.replace(/^#{1,3}\s+/, ""));
+            appendInlineMarkdown(heading, line.replace(/^#{1,3}\s+/, ""), options);
             container.append(heading);
             continue;
         }
@@ -1908,13 +2181,24 @@ function renderAnnotation(item, annotation, loading = false) {
     const risk = extractRisk(annotation.body);
     if (risk) {
         const banner = el("div", `risk-banner risk-banner-${risk.level}`);
-        banner.append(el("b", "", `${risk.level} risk`), el("span", "", risk.reason));
+        banner.append(el("b", "", `AI assessment: ${risk.level} risk`), el("span", "", risk.reason));
         panel.append(banner);
     }
     const body = revealOnce(el("div", "annotation-body"), `annotation:${item.id}`);
     markdownContext.intent = state.attribution?.[0] || null;
     markdownContext.subject = state.payload?.model?.nodes.find((node) => node.id === (item.node_id || item.id)) || null;
-    renderMarkdown(body, risk ? risk.body : annotation.body);
+    const markdown = risk ? risk.body : annotation.body;
+    const { preamble, sections } = annotationSections(markdown);
+    const primary = sections.find((section) => /what changed|behavior|summary|findings/i.test(section.title)) || sections[0];
+    if (primary && sections.length > 1) {
+        renderMarkdown(body, primary.text);
+        const more = el("details", "annotation-more");
+        more.append(el("summary", "", "Full explanation"));
+        const full = el("div", "");
+        renderMarkdown(full, [preamble, ...sections.filter((section) => section !== primary).map((section) => section.text)].join("\n"));
+        more.append(full);
+        body.append(more);
+    } else renderMarkdown(body, markdown);
     panel.append(body);
     if (annotation.evidence_ids?.length) {
         const citations = el("details", "annotation-citations");
@@ -2305,6 +2589,8 @@ async function renderSource({ preserveScroll = false } = {}) {
     elements.source_section.classList.toggle("hidden", !(state.payload?.model?.changes || [])
         .some((change) => change.path === state.source.path && change.status !== "unchanged"));
     elements.source.setAttribute("aria-busy", "true");
+    elements.source_focus.disabled = !state.sourceFocused;
+    elements.source_location.disabled = true;
     if (!matchingSourceRows(source, tab)) elements.source.replaceChildren(el("p", "muted", "Rendering saved source…"));
     elements.source_ruler.classList.add("hidden");
     const cached = await cachedSourceRows(source, tab, isCurrent);
@@ -2348,6 +2634,8 @@ async function renderSource({ preserveScroll = false } = {}) {
     const lines = cached.lines || el("div", "code-lines");
     const oldNumbers = rows.some((row) => row.dataset?.oldLine);
     const newNumbers = rows.some((row) => row.dataset?.newLine);
+    elements.source_focus.disabled = !(oldNumbers || newNumbers) && !state.sourceFocused;
+    elements.source_location.disabled = !(oldNumbers || newNumbers);
     lines.classList.toggle("new-lines-only", newNumbers && !oldNumbers);
     lines.classList.toggle("old-lines-only", oldNumbers && !newNumbers);
     const largestLine = rows.reduce((largest, row) =>
@@ -2401,7 +2689,7 @@ async function renderSource({ preserveScroll = false } = {}) {
     const selectedPath = state.selected?.path || state.payload?.model?.nodes?.find((node) =>
         node.id === (state.selected?.node_id || state.selected?.id))?.path;
     if (annotation && selectedPath === state.source.path) renderAnnotation(state.selected, annotation);
-    else elements.source_annotation.classList.add("hidden");
+    else if (!renderSectionEvidence()) elements.source_annotation.classList.add("hidden");
     renderSourceRisk();
     renderSourceDecisions();
     renderProvenance();
@@ -2504,6 +2792,7 @@ function renderChangeRuler(rows) {
 function collectionTitle(mode) {
     if (mode === "areas") return state.areaGroup?.title || "Large change areas";
     return {
+        impact: "Change impact", sections: "Review sections",
         walkthrough: "Risk-first walkthrough",
         files: "Changed files", lines: "Lines changed by file", symbols: "Changed symbols",
         edges: "New relationships", packages: "Package changes", findings: "Ranked findings",
@@ -3807,6 +4096,7 @@ function render() {
     }
     const payload = state.payload;
     const model = payload?.model;
+    elements.review_command_open.disabled = !model || Boolean(payload.loading);
     elements.impact_view.disabled = !model || Boolean(payload.loading);
     elements.sections_view.disabled = !model || Boolean(payload.loading);
     const worktreeNotice = !state.reviewPickerPending && !state.reviewSubmitting && !payload?.loading
@@ -3979,7 +4269,9 @@ function render() {
         renderAnnotation(state.selected, payload.annotations[state.selected.id]);
     }
     if (state.source && !elements.source_panel.classList.contains("hidden")) renderSourceDecisions();
+    if (state.source && state.selected?.kind === "section" && !payload.annotations?.[state.selected.id]) renderSectionEvidence();
     if (!state.selected) renderEmptyDetail();
+    applyReviewLocation().catch(showError);
 }
 
 function applyServerSelection(payload) {
@@ -4049,6 +4341,13 @@ elements.review_search.addEventListener("input", () => {
     render();
 });
 window.addEventListener("keydown", (event) => {
+    if (document.querySelector("dialog[open]")) return;
+    if (event.key === "Escape" && state.sourceFocused) {
+        event.preventDefault();
+        setSourceFocus(false);
+        elements.source_focus.focus({ preventScroll: true });
+        return;
+    }
     if (event.key === "Escape" && !elements.session_history_panel.classList.contains("hidden")) {
         elements.session_history_close.click();
         return;
@@ -4065,6 +4364,55 @@ window.addEventListener("keydown", (event) => {
     if (event.altKey && event.key === "ArrowLeft" && (state.stack.length || state.mode !== "graph")) {
         event.preventDefault();
         elements.zoom_out.click();
+        return;
+    }
+    if (event.isComposing || event.target.closest?.("input, textarea, select, [contenteditable='true']")) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openReviewCommands();
+        return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const inReview = document.activeElement.closest?.(".workspace, #source-panel");
+    if (!inReview) return;
+    const key = event.key.toLowerCase();
+    if (key === "j" || key === "k") {
+        event.preventDefault();
+        if (state.mode === "sections" && elements.source_panel.classList.contains("hidden")) {
+            const summaries = [...elements.graph.querySelectorAll(".section-card > summary")];
+            const current = summaries.indexOf(document.activeElement.closest("summary"));
+            const next = summaries[(current + (key === "j" ? 1 : summaries.length - 1) + summaries.length) % summaries.length];
+            if (next) {
+                next.parentElement.open = true;
+                next.scrollIntoView({ block: "nearest" });
+                next.focus({ preventScroll: true });
+            }
+        } else {
+            const cards = [...elements.attention.querySelectorAll(".review-card")];
+            let current = cards.findIndex((card) => card.dataset.itemId === state.selected?.id);
+            if (current < 0) current = key === "j" ? -1 : 0;
+            const next = cards[(current + (key === "j" ? 1 : cards.length - 1) + cards.length) % cards.length];
+            if (!next) return;
+            if (elements.source_panel.classList.contains("hidden")) next.focus({ preventScroll: true });
+            else {
+                state.sourceReturnFocus = next;
+                state.sourceOriginItemId = next.dataset.itemId;
+            }
+            next.click();
+        }
+    } else if (key === "a") {
+        event.preventDefault();
+        discussItem(focusedReviewItem()).catch(showError);
+    } else if (key === "i") {
+        event.preventDefault();
+        openImpact(focusedReviewItem());
+    } else if (key === "f") {
+        event.preventDefault();
+        setSourceFocus(!state.sourceFocused);
+    } else if (key === "/") {
+        event.preventDefault();
+        if (elements.review_search.getClientRects().length) elements.review_search.focus();
+        else openReviewCommands();
     }
 });
 let resizeFrame = null;
@@ -4119,6 +4467,7 @@ elements.rail_resize.addEventListener("keydown", (event) => {
     setRailWidth(current + (event.key === "ArrowRight" ? 20 : -20));
 });
 elements.source_close.addEventListener("click", () => {
+    setSourceFocus(false);
     setDiscussionMode(false);
     const fileSelection = state.selected?.kind === "file";
     state.selectionEpoch += 1;
@@ -4139,6 +4488,16 @@ elements.source_close.addEventListener("click", () => {
     } else if (state.sourceReturnFocus?.isConnected && state.sourceReturnFocus.getClientRects().length) {
         state.sourceReturnFocus.scrollIntoView({ block: "nearest" });
         state.sourceReturnFocus.focus({ preventScroll: true });
+    } else {
+        const card = [...document.querySelectorAll(".review-card[data-item-id]")]
+            .find((card) => card.dataset.itemId === (state.sourceOriginItemId || state.selected?.id));
+        const section = [...elements.graph.querySelectorAll(".section-card")]
+            .find((section) => section.dataset.sectionId === state.selected?.id)?.querySelector("summary");
+        const graphNode = [...elements.graph.querySelectorAll(".node")]
+            .find((node) => node.dataset.nodeId === (state.selected?.node_id || state.selected?.id));
+        const target = section || graphNode || card || elements.review_command_open;
+        target.scrollIntoView({ block: "nearest" });
+        target.focus({ preventScroll: true });
     }
     state.sourceReturnFocus = null;
 });
@@ -4171,6 +4530,8 @@ function updateReviewApply() {
 }
 
 function resetReviewNavigation() {
+    setSourceFocus(false);
+    state.appliedReviewLocation = null;
     setDiscussionMode(false);
     sourceRowCache.clear();
     state.selectionEpoch += 1;

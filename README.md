@@ -145,6 +145,29 @@ usage, behavior changes, motivation, risk, and what to verify.
 The source workspace keeps the diff first, shows its risk priority and reasons,
 and places linked-test execution and path-level results beside the affected code.
 
+Attention cards distinguish deterministic **Review priority** signals from
+AI-supported concerns and review observations. Their concise previews retain
+the full underlying explanation and evidence. Source explanations lead with
+the behavioral change; supporting background is available under **Full
+explanation**. Section context follows its exact source ranges into the same
+evidence workspace.
+
+Use **Find / shortcuts** (Ctrl+K outside editable fields) to find changed files,
+source symbols, and findings without searching the full source text. Results are
+bounded and report how many matches remain. With focus in the review or source
+workspace, J/K moves between review items, A opens discussion, I opens impact,
+and F toggles code focus. Source navigation keeps keyboard focus in the visible
+code workspace. Escape exits focus before closing source, and closes the finder
+without dismissing the source behind it. Ctrl+Enter sends a discussion question
+without stealing ordinary typing shortcuts. The highlighted or selected saved
+range accompanies the question, including its exact base/current side.
+
+**Copy location** creates a local canvas link pinned to the source snapshot,
+item, side, and line. Links to another snapshot or unavailable items are
+explicitly rejected rather than silently opening newer code. These are local
+review links, not cloud share links: the original saved target must remain
+available or be reconstructed before an older link can be opened.
+
 ### Recover the agent's intent
 
 When matching Copilot session history is available, source views show the

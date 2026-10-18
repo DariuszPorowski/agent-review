@@ -27,6 +27,7 @@
                 <button id="review-more" class="hidden" type="button">Load more</button>
             </form>
             <span id="status" class="status">Connecting</span>
+            <button id="review-command-open" type="button" disabled title="Find review items and keyboard shortcuts (Ctrl+K)">Find / shortcuts</button>
             <button id="refresh" type="button" title="Refresh the selected snapshot and rerun AI summaries, custom checks, and package assessments instead of using saved results">Reanalyze</button>
         </div>
     </header>
@@ -143,13 +144,15 @@
                     <button id="source-close" class="source-close" type="button" aria-label="Close source review">Close ×</button>
                     <button id="source-impact" type="button">Impact</button>
                     <button id="source-section" type="button">Section</button>
+                    <button id="source-focus" type="button" aria-pressed="false" disabled>Focus code</button>
+                    <button id="source-location" type="button" disabled title="Copy a local link pinned to this source snapshot and location">Copy location</button>
                 </div>
             </div>
             <p id="source-context-notice" class="muted source-context-notice hidden" role="status"></p>
             <section id="source-risk" class="source-risk hidden" aria-label="Review priority"></section>
             <div class="source-body">
                 <div class="code-frame">
-                    <div id="source" class="code-view" aria-label="Source and diff"></div>
+                    <div id="source" class="code-view" role="region" tabindex="0" aria-label="Source and diff"></div>
                     <div id="source-ruler" class="code-ruler hidden" role="navigation" aria-label="Changes in this file"></div>
                 </div>
                 <div class="source-side">
@@ -176,6 +179,18 @@
             <div id="session-transcript" class="session-transcript"></div>
         </section>
     </main>
+    <dialog id="review-command-palette" class="prompt-manager" aria-labelledby="review-command-title">
+        <div class="custom-heading">
+            <h2 id="review-command-title">Find in this review</h2>
+            <button id="review-command-close" type="button">Close</button>
+        </div>
+        <label for="review-command-query">File, symbol, or finding</label>
+        <input id="review-command-query" type="search" maxlength="500" placeholder="Find a changed file, source symbol, or priority signal…">
+        <p id="review-command-count" class="muted" role="status"></p>
+        <ul id="review-command-results" class="review-command-results"></ul>
+        <p class="muted">Searches this snapshot's file names, symbols, and findings—not full source text. Results are capped at 30.</p>
+        <p class="muted">With review or source focus: J/K next/previous item, A ask, I impact, F focus code. Ctrl+K opens this finder outside editable fields. Escape exits focus mode or closes the source workspace. Ctrl+Enter sends a discussion question.</p>
+    </dialog>
     <dialog id="repository-picker" class="prompt-manager" aria-labelledby="repository-picker-title">
         <div class="custom-heading">
             <h2 id="repository-picker-title">Choose repository</h2>

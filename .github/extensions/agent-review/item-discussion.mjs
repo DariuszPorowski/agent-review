@@ -11,6 +11,10 @@ export function discussionContext(model, context, history, question) {
             path, side, start_line: Math.max(1, line - 5), end_line: Math.min(end || line + 15, line + 194),
         });
     };
+    if (context.discussion_location) {
+        const location = context.discussion_location;
+        add(location.path, location.line, location.line + 15, location.side);
+    }
     add(subject?.path, subject?.start_line || 1, subject?.end_line,
         subject?.change === "removed" ? "base" : "current");
     for (const range of (context.section?.ranges || []).slice(0, 8)) add(range.path, range.line, range.end_line, range.side);
@@ -75,6 +79,7 @@ export function discussionContext(model, context, history, question) {
             package: subject.name, current_version: subject.resolved_current || null,
             declarations: (subject.declared_current || []).slice(0, 8).map(({ source, line, specifier }) => ({ source, line, specifier })),
         } : {}) }, evidence: [...evidence.values()],
+        viewed_location: context.discussion_location || null,
         impact: { paths: impact.paths, gaps: impact.gaps }, evidence_gaps: gaps,
         snapshot_availability: {
             saved_files: Object.keys(model.source_files || {}).length,
@@ -92,7 +97,8 @@ export function discussionContext(model, context, history, question) {
             omitted_range_catalog_entries: Math.max(0, context.section.ranges.length - 40),
             caveat: "Matching callable structure does not establish equivalent imported configuration or runtime behavior.",
         } } : {}),
-        history: messages.slice(-8).map(({ role, content }) => ({ role, content: content.slice(0, 2000) })),
+        history: messages.slice(-8).map(({ role, content, location }) => ({ role, content: content.slice(0, 2000),
+            ...(location ? { location } : {}) })),
         omitted_history_characters: messages.slice(-8).reduce((sum, message) => sum + Math.max(0, message.content.length - 2000), 0),
         omitted_history_messages: Math.max(0, messages.length - 8) };
 }
