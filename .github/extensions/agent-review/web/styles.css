@@ -738,7 +738,17 @@ marker path { fill: var(--cp-border-strong); }
 .item-discussion textarea { resize: vertical; min-height: 80px; padding: 8px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); color: var(--cp-text); font: inherit; }
 .item-discussion button[type="submit"] { background: var(--cp-primary); color: #fff; border-color: var(--cp-primary); }
 .item-discussion button:disabled { opacity: .5; cursor: default; }
-.source-panel.no-source .tab, .source-panel.no-source #source-impact { display: none; }
+.source-panel.no-source .tab, .source-panel.no-source #source-impact, .source-panel.no-source #source-section { display: none; }
+.workspace.sections-mode .legend, .workspace.sections-mode .graph-controls label { display: none; }
+.review-sections { padding: 12px; }
+.workspace.sections-mode .graph-panel { background-image: none; }
+.section-card { margin: 10px 0; padding: 12px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); overflow-wrap: anywhere; }
+.section-card > summary { font-weight: 600; cursor: pointer; }
+.section-card p { margin: 10px 0; }
+.section-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.section-actions button { min-height: 32px; max-width: 100%; }
+.section-actions button:not(.source-reference) { padding: 5px 10px; border: 1px solid var(--cp-border); border-radius: 6px; color: var(--cp-text); background: var(--cp-surface); cursor: pointer; }
+.section-ranges li, .supporting-sections li { margin: 6px 0; }
 .workspace.impact-mode .legend, .workspace.impact-mode .graph-controls label,
 .workspace.impact-mode #review-search { display: none; }
 .graph-controls { flex-wrap: wrap; min-width: 0; }

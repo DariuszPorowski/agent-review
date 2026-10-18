@@ -26,6 +26,7 @@ import { pythonCandidates } from "./python-runtime.mjs";
 import { runReview } from "./review-pipeline.mjs";
 import { reviewIdentity } from "./review-pipeline.mjs";
 import { answerDiscussion } from "./item-discussion.mjs";
+import { contextForSection, sectionsFor } from "./review-sections-context.mjs";
 
 const execFileAsync = promisify(execFile);
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -956,6 +957,11 @@ export class ReviewState {
         return { snapshot, key: createHash("sha256").update(`${snapshot}:${id}`).digest("hex") };
     }
 
+    reviewSectionsFor() {
+        if (!this.model || this.loading) throw new Error("Wait for the saved review to finish.");
+        return sectionsFor(this.model, this.reviewEvidenceModel === this.model ? this.reviewEvidence : null);
+    }
+
     async discussionFor(id) {
         if (typeof id !== "string" || !id) throw new Error("Select an item to discuss.");
         const { snapshot, key } = this.discussionKey(id);
@@ -1332,6 +1338,8 @@ export class ReviewState {
     contextFor(id = this.selection?.id) {
         if (!this.model) return null;
         if (!id) return { metadata: this.model.metadata, summary: this.model.summary, session_context: this.sessionContext };
+        if (id.startsWith("section:")) return contextForSection(this.model, id,
+            this.reviewEvidenceModel === this.model ? this.reviewEvidence : null, (subject) => this.contextFor(subject));
         const node = this.model.nodes?.find((item) => item.id === id);
         const edge = this.model.edges?.find((item) => item.id === id);
         const packageChange = this.model.package_changes?.find((item) => item.id === id

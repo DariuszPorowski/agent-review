@@ -132,6 +132,10 @@ export function startReviewServer(state, options = {}) {
                     available: Boolean(state.generateDiscussion) });
                 return;
             }
+            if (req.method === "GET" && pathname === "/api/review-sections") {
+                sendJson(res, state.reviewSectionsFor());
+                return;
+            }
             if (req.method === "POST" && pathname === "/api/discussion") {
                 sendJson(res, { thread: await state.askDiscussion(await readJson(req)) }, 202);
                 return;

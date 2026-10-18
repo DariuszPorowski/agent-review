@@ -72,7 +72,7 @@ jobs:
       - name: Check packaging and runtime routing
         run: node --test .github/extensions/agent-review/tests/test-distribution.mjs .github/extensions/agent-review/tests/test-bootstrap.mjs .github/extensions/agent-review/tests/test-python-runtime.mjs .github/extensions/agent-review/tests/test-publish-workflow.mjs
       - name: Check review evidence budgets and repository rules
-        run: node --test .github/extensions/agent-review/tests/test-custom-analysis.mjs .github/extensions/agent-review/tests/test-review-contracts.mjs .github/extensions/agent-review/tests/test-review-pipeline.mjs .github/extensions/agent-review/tests/test-impact-model.mjs .github/extensions/agent-review/tests/test-item-discussion.mjs
+        run: node --test .github/extensions/agent-review/tests/test-custom-analysis.mjs .github/extensions/agent-review/tests/test-review-contracts.mjs .github/extensions/agent-review/tests/test-review-pipeline.mjs .github/extensions/agent-review/tests/test-impact-model.mjs .github/extensions/agent-review/tests/test-item-discussion.mjs .github/extensions/agent-review/tests/test-review-sections.mjs
       - name: Check saved snapshots and oversized diffs
         run: python -m unittest discover -s .github/extensions/agent-review/tests -p test_snapshot.py
       - name: Check cross-platform session paths and attribution

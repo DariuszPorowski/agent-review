@@ -51,7 +51,7 @@ const elements = Object.fromEntries([
     "review-target-form", "review-mode", "review-ref", "review-target-label", "repository-identity", "review-list-refresh", "review-more", "review-options-status", "review-picker-notice", "clean-review", "change-brief",
     "status", "refresh", "cancel-analysis", "analysis-cancelled", "source-context-notice", "connection-notice", "reconnect", "worktree-notice", "worktree-notice-text", "worktree-reanalyze", "error", "analysis-progress", "progress-phase", "progress-message", "progress-percent",
     "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize", "impact-view", "source-impact",
-    "show-evidence", "show-discussion", "item-discussion",
+    "show-evidence", "show-discussion", "item-discussion", "sections-view", "source-section",
     "graph", "level-label", "graph-title", "zoom-out", "changed-only", "review-search", "detail-toggle", "detail", "detail-close", "source-panel", "source-title",
     "source-provenance", "source-decisions", "source-annotation", "source-risk", "source-close", "source", "source-ruler", "source-back", "source-forward",
     "session-history-panel", "session-history-title", "session-history-meta", "session-history-close", "session-transcript",
@@ -624,6 +624,216 @@ elements.source_impact.addEventListener("click", () => {
         && ["function", "method", "constructor"].includes(node.kind))
         .sort((a, b) => (a.end_line - a.start_line) - (b.end_line - b.start_line))[0];
     openImpact(symbol || { id: `file:${source?.path}` });
+});
+
+function openSections(location = null) {
+    if (!state.payload?.model) {
+        showError(new Error("Wait for the saved review to load before opening sections."));
+        return;
+    }
+    state.sectionFocus = location;
+    state.mode = "sections";
+    state.query = "";
+    elements.review_search.value = "";
+    setDiscussionMode(false);
+    state.source = null;
+    state.selected = null;
+    state.selectionEpoch++;
+    elements.source_panel.classList.add("hidden");
+    renderEmptyDetail();
+    setDetailVisible(false);
+    render();
+}
+
+function sectionSourceButton(section, range, label = null) {
+    const button = sourceReferenceButton(label || `${range.path}:${range.line}${range.side === "base" ? " (base)" : ""}`,
+        { path: range.path, lines: [range.line], side: range.side });
+    button.addEventListener("click", () => {
+        if (state.selected?.id !== section.id) setDiscussionMode(false);
+        state.selected = { id: section.id, kind: "section", title: section.title, path: range.path };
+        state.sourceReturnFocus = button;
+    });
+    return button;
+}
+
+function renderSections(model) {
+    const key = `${state.payload.review_generation}:${state.payload.rule_check?.completed_at || ""}`;
+    elements.graph.replaceChildren();
+    if (state.payload.loading) {
+        elements.graph.append(el("p", "muted", "Reanalyzing the saved target. Sections will refresh when analysis finishes."));
+        return;
+    }
+    if (state.sectionDataKey !== key) {
+        if (state.sectionLoadingKey !== key && state.sectionError?.key !== key) {
+            state.sectionLoadingKey = key;
+            api("/api/review-sections").then((data) => {
+                if (state.sectionLoadingKey !== key) return;
+                state.sectionData = data;
+                state.sectionDataKey = key;
+                state.sectionLoadingKey = null;
+                if (state.mode === "sections") render();
+            }, (error) => {
+                if (state.sectionLoadingKey !== key) return;
+                state.sectionError = { key, message: error.message };
+                state.sectionLoadingKey = null;
+                if (state.mode === "sections") render();
+            });
+        }
+        if (state.sectionError?.key === key) {
+            const retry = el("button", "", "Retry sections");
+            retry.type = "button";
+            retry.addEventListener("click", () => { state.sectionError = null; render(); });
+            elements.graph.append(el("p", "error", state.sectionError.message), retry);
+        } else elements.graph.append(el("p", "muted", "Building source-derived review sections…"));
+        return;
+    }
+    const data = state.sectionData;
+    const behavior = data.sections.filter((section) => section.kind === "behavior");
+    const supporting = data.sections.filter((section) => section.kind !== "behavior");
+    const reviewed = behavior.filter((section) => state.reviewLedger.get(section.id)?.disposition === "reviewed").length;
+    const list = el("div", "review-sections");
+    list.append(el("p", "", `${countLabel(behavior.length, "behavior section")} · ${countLabel(data.represented_files, "changed file")} represented · ${countLabel(reviewed, "section")} marked reviewed`),
+        el("p", "muted", `AI analysis: ${data.analysis_status}. ${data.note}`));
+    const number = new Map(data.sections.map((section) => [section.id, section.number]));
+    const focusLocation = state.sectionFocus;
+    const focusedSection = focusLocation && (data.sections.find((section) => section.ranges.some((range) =>
+        range.path === focusLocation.path && range.side === focusLocation.side
+        && focusLocation.line >= range.line && focusLocation.line <= range.end_line))
+        || data.sections.find((section) => section.ranges.some((range) => range.path === focusLocation.path)));
+    if (focusLocation && !focusedSection) list.append(el("p", "muted",
+        "This source location has no changed section owner. Sections describe changed code, not every related dependency."));
+    const query = state.query.toLowerCase();
+    const matches = (section) => !query || `${section.title} ${section.summary} ${section.ranges.map((range) => range.path).join(" ")}`.toLowerCase().includes(query);
+    let focused = null;
+    for (const section of behavior.filter(matches)) {
+        const shownRanges = query && section.ranges.some((range) => range.path.toLowerCase().includes(query))
+            ? section.ranges.filter((range) => range.path.toLowerCase().includes(query)) : section.ranges;
+        const details = el("details", "section-card");
+        details.dataset.sectionId = section.id;
+        const requested = section.id === focusedSection?.id;
+        details.open = requested || state.openSectionKeys?.has(section.id);
+        details.addEventListener("toggle", () => {
+            if (!details.isConnected) return;
+            state.openSectionKeys ||= new Set();
+            if (details.open) state.openSectionKeys.add(section.id);
+            else state.openSectionKeys.delete(section.id);
+        });
+        const summary = el("summary", "", `${section.number}. ${section.title}`);
+        details.append(summary, el("p", "muted", section.grouping || "Source-linked changed contract and consumers"),
+            el("p", "", section.summary));
+        if (section.summary_citations.length) {
+            details.append(el("p", "muted", "AI interpretation; verify against the cited source."));
+            for (const citation of section.summary_citations) details.append(sectionSourceButton(section,
+                { path: citation.path, line: citation.line, side: citation.side }));
+        }
+        for (const dependency of section.depends_on) {
+            const link = el("button", "link-button", `Depends on section ${number.get(dependency)}`);
+            link.type = "button";
+            link.addEventListener("click", () => {
+                const target = [...elements.graph.querySelectorAll(".section-card")].find((node) => node.dataset.sectionId === dependency);
+                if (!target) return;
+                target.open = true;
+                target.scrollIntoView({ block: "nearest" });
+                target.querySelector("summary").focus();
+            });
+            details.append(link);
+        }
+        if (section.cyclic) details.append(el("p", "muted", "A dependency cycle prevents a strict reading order."));
+        const actions = el("div", "section-actions");
+        actions.append(sectionSourceButton(section, shownRanges[0], "Open first range"));
+        const ask = el("button", "", "Ask about section");
+        ask.type = "button";
+        ask.addEventListener("click", () => {
+            state.sourceReturnFocus = ask;
+            discussItem({ id: section.id, kind: "section", title: section.title, path: section.ranges[0].path }).catch(showError);
+        });
+        const mark = el("button", "", state.reviewLedger.get(section.id)?.disposition === "reviewed" ? "Reopen section" : "Mark section reviewed");
+        mark.type = "button";
+        mark.addEventListener("click", () => {
+            setReviewDisposition({ id: section.id, path: section.ranges[0].path },
+                state.reviewLedger.get(section.id)?.disposition === "reviewed" ? "pending" : "reviewed");
+            const target = [...elements.graph.querySelectorAll(".section-card")].find((node) => node.dataset.sectionId === section.id);
+            target?.querySelector("summary").focus({ preventScroll: true });
+        });
+        actions.append(ask, mark);
+        details.append(actions);
+        const ranges = el("details", "section-ranges");
+        ranges.open = state.openSectionRangeKeys?.has(section.id) || false;
+        ranges.append(el("summary", "", `${countLabel(shownRanges.length, "source range")}${shownRanges.length < section.ranges.length ? ` of ${section.ranges.length} matching filter` : ""}`));
+        ranges.addEventListener("toggle", () => {
+            if (!ranges.isConnected) return;
+            state.openSectionRangeKeys ||= new Set();
+            if (ranges.open) state.openSectionRangeKeys.add(section.id);
+            else state.openSectionRangeKeys.delete(section.id);
+            if (!ranges.open || ranges.dataset.loaded) return;
+            ranges.dataset.loaded = "true";
+            const entries = el("ul", "");
+            for (const range of shownRanges) {
+                const row = el("li", "");
+                row.append(sectionSourceButton(section, range));
+                entries.append(row);
+            }
+            ranges.append(entries);
+        });
+        details.append(ranges);
+        const tests = el("details", "");
+        tests.append(el("summary", "", `${countLabel(section.tests.length, "related test")} (static links)`));
+        tests.addEventListener("toggle", () => {
+            if (!tests.isConnected) return;
+            if (!tests.open || tests.dataset.loaded) return;
+            tests.dataset.loaded = "true";
+            tests.append(el("p", "muted", "A source relationship is not proof that the changed behavior executed."));
+            for (const test of section.tests) tests.append(sectionSourceButton(section,
+                { path: test.path, line: test.start_line || 1, side: "current" }));
+        });
+        details.append(tests);
+        list.append(details);
+        if (requested) focused = summary;
+    }
+    const other = supporting.filter(matches);
+    if (other.length) {
+        const details = el("details", "section-card supporting-sections");
+        details.append(el("summary", "", `${countLabel(other.length, "supporting file")} without a verified behavioral owner`),
+            el("p", "muted", "These files remain in scope. They are grouped for navigation, not claimed to share one behavior."));
+        details.addEventListener("toggle", () => {
+            if (!details.isConnected) return;
+            if (!details.open || details.dataset.loaded) return;
+            details.dataset.loaded = "true";
+            const entries = el("ul", "");
+            let target = null;
+            for (const section of other) {
+                const row = el("li", "");
+                const range = section.ranges[0];
+                const open = sectionSourceButton(section, range);
+                if (model.source_files?.[range.path]?.binary) {
+                    open.disabled = true;
+                    open.title = "Binary file: no saved text view is available.";
+                }
+                row.append(open);
+                entries.append(row);
+                if (focusLocation?.path === range.path) target = open;
+            }
+            details.append(entries);
+            target?.scrollIntoView({ block: "nearest" });
+            target?.focus({ preventScroll: true });
+        });
+        if (other.some((section) => section.id === focusedSection?.id)) details.open = true;
+        list.append(details);
+    }
+    if (!behavior.some(matches) && !other.length) list.append(el("p", "muted", "No sections match this filter."));
+    elements.graph.append(list);
+    focused?.scrollIntoView({ block: "nearest" });
+    focused?.focus({ preventScroll: true });
+    state.sectionFocus = null;
+}
+
+elements.sections_view.addEventListener("click", () => {
+    if (state.mode === "sections") { state.mode = "walkthrough"; render(); }
+    else openSections();
+});
+elements.source_section.addEventListener("click", () => {
+    if (state.source) openSections({ path: state.source.path, line: Number(state.source.start_line) || 1,
+        side: state.source.focus_side || "current" });
 });
 
 function openReviewItem(item) {
@@ -2092,6 +2302,8 @@ async function renderSource({ preserveScroll = false } = {}) {
     const previousScroll = { top: elements.source.scrollTop, left: elements.source.scrollLeft };
     elements.source_panel.classList.remove("hidden");
     elements.source_title.textContent = `${state.source.path}${state.source.start_line ? `:${state.source.start_line}` : ""}`;
+    elements.source_section.classList.toggle("hidden", !(state.payload?.model?.changes || [])
+        .some((change) => change.path === state.source.path && change.status !== "unchanged"));
     elements.source.setAttribute("aria-busy", "true");
     if (!matchingSourceRows(source, tab)) elements.source.replaceChildren(el("p", "muted", "Rendering saved source…"));
     elements.source_ruler.classList.add("hidden");
@@ -3595,6 +3807,8 @@ function render() {
     }
     const payload = state.payload;
     const model = payload?.model;
+    elements.impact_view.disabled = !model || Boolean(payload.loading);
+    elements.sections_view.disabled = !model || Boolean(payload.loading);
     const worktreeNotice = !state.reviewPickerPending && !state.reviewSubmitting && !payload?.loading
         && payload?.review_target?.mode === "worktree" && (payload.worktree_changed || payload.worktree_check_error);
     elements.worktree_notice.classList.toggle("hidden", !worktreeNotice);
@@ -3694,12 +3908,19 @@ function render() {
     workspace.classList.toggle("package-mode", state.mode === "packages");
     workspace.classList.toggle("walkthrough-mode", state.mode === "walkthrough");
     workspace.classList.toggle("impact-mode", state.mode === "impact");
+    workspace.classList.toggle("sections-mode", state.mode === "sections");
     elements.zoom_out.disabled = state.mode === "graph" && state.stack.length === 0;
     elements.zoom_out.title = state.mode !== "graph" ? "Back to architecture" : parent ? `Back from ${parent.name}` : "Already at architecture level";
     elements.zoom_out.textContent = state.mode === "walkthrough" ? "Architecture" : "← Back";
     elements.impact_view.setAttribute("aria-pressed", String(state.mode === "impact"));
     elements.impact_view.textContent = state.mode === "impact" ? "Structure" : "Impact";
-    if (state.mode === "impact") {
+    elements.sections_view.setAttribute("aria-pressed", String(state.mode === "sections"));
+    elements.sections_view.textContent = state.mode === "sections" ? "Review plan" : "Sections";
+    if (state.mode === "sections") {
+        elements.level_label.textContent = "GROUPED REVIEW";
+        elements.graph_title.textContent = "Source-backed review sections";
+        renderSections(model);
+    } else if (state.mode === "impact") {
         elements.level_label.textContent = "CHANGE IMPACT";
         elements.graph_title.textContent = "Evidence-backed impact";
         renderImpact(model);
@@ -3915,6 +4136,9 @@ elements.source_close.addEventListener("click", () => {
             state.sourceReturnFocus.scrollIntoView({ block: "nearest" });
             state.sourceReturnFocus.focus({ preventScroll: true });
         } else focusImpactNode();
+    } else if (state.sourceReturnFocus?.isConnected && state.sourceReturnFocus.getClientRects().length) {
+        state.sourceReturnFocus.scrollIntoView({ block: "nearest" });
+        state.sourceReturnFocus.focus({ preventScroll: true });
     }
     state.sourceReturnFocus = null;
 });
@@ -3953,6 +4177,12 @@ function resetReviewNavigation() {
     state.customOpenKeys.clear();
     state.selected = null;
     state.source = null;
+    state.sectionData = null;
+    state.sectionDataKey = null;
+    state.sectionLoadingKey = null;
+    state.sectionError = null;
+    state.openSectionKeys = new Set();
+    state.openSectionRangeKeys = new Set();
     state.summaryKey = null;
     state.overviewLoading = false;
     state.overviewError = null;

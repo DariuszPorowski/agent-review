@@ -90,7 +90,7 @@ export class ItemDiscussionPane {
         const scroll = this.messages.scrollTop;
         const messages = [];
         for (const message of thread.messages) {
-            const signature = JSON.stringify([message.status, message.content, message.limitation, message.error, message.citations]);
+            const signature = JSON.stringify([message.status, message.content, message.limitation, message.error, message.citations, message.evidence_scope]);
             const existing = this.messageNodes.get(message.id);
             if (existing?.signature === signature) {
                 messages.push(existing.node);
@@ -100,6 +100,10 @@ export class ItemDiscussionPane {
             article.append(node("strong", message.role === "user" ? "You" : "Copilot"));
             if (message.content) article.append(node("p", message.content));
             if (message.limitation) article.append(node("p", `Evidence limitation: ${message.limitation}`, "muted"));
+            if (message.evidence_scope) article.append(node("p",
+                `Source excerpts supplied: ${message.evidence_scope.supplied_files} files. Saved snapshot: ${message.evidence_scope.snapshot_files} files` +
+                `${message.evidence_scope.section_files ? `; this section contains ${message.evidence_scope.section_files} files` : ""}. ` +
+                "Not supplied to this answer does not mean missing from the snapshot.", "muted"));
             for (const citation of message.citations || []) article.append(this.sourceLink(citation));
             if (["stopped", "error"].includes(message.status)) article.append(node("p",
                 `${message.status === "stopped" ? "Stopped" : "Could not complete"}: ${message.error || "No complete answer was produced."}`, "error"));

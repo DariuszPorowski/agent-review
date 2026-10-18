@@ -108,6 +108,23 @@ Activity, evidence limitations, errors, and **Stop answer** are explicit.
 Only one answer runs at a time per item; a stopped answer is not presented as
 complete. Recent conversation context is bounded independently of stored history.
 
+### Read source-backed review sections
+
+**Sections** organizes changed contracts, source-linked consumers, and related
+tests into a reading plan, independently of internal request batches. Identical
+analyzed callable implementations may form a cohort only when they also share
+the same resolved dependencies. Added and removed callables in one saved edit
+hunk can be read together without claiming they have the same identity.
+Unclassified supporting files remain visible in a separate, expandable list;
+the representation count includes every changed file.
+
+Each section exposes its ranges, explicit dependencies, static test links,
+available source-cited AI interpretations, and a snapshot-pinned discussion.
+**Section** in the source toolbar returns to the owning section.
+Manual **Mark section reviewed** records a snapshot-scoped checklist state:
+it neither resolves findings nor claims that AI analysis or test execution is
+complete. Missing AI interpretations and partial analysis remain explicit.
+
 ### Inspect the actual code
 
 Open **Diff**, **Current**, or **Base** for the selected snapshot. Current and
