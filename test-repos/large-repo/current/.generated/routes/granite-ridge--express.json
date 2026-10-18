@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "granite-ridge/express",
+  "revision": "seconds-policy-migration",
+  "module": "modules/granite-ridge/express/index.js",
+  "duration": {
+    "value": 4440,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 750,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "priority",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

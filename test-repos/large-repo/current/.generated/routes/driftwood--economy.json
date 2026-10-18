@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "driftwood/economy",
+  "revision": "seconds-policy-migration",
+  "module": "modules/driftwood/economy/index.js",
+  "duration": {
+    "value": 5340,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 900,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "deferred",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

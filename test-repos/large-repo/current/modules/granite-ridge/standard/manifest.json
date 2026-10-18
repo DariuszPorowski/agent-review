@@ -1,0 +1,13 @@
+{
+  "routeId": "granite-ridge/standard",
+  "owner": "ops-granite-ridge",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "standard",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

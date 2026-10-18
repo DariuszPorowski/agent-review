@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "north-pier/economy",
+  "revision": "seconds-policy-migration",
+  "module": "modules/north-pier/economy/index.js",
+  "duration": {
+    "value": 7140,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 1150,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "deferred",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

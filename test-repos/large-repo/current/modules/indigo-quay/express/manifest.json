@@ -1,0 +1,13 @@
+{
+  "routeId": "indigo-quay/express",
+  "owner": "ops-indigo-quay",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "priority",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

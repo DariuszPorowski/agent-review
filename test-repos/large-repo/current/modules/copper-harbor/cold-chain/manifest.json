@@ -1,0 +1,13 @@
+{
+  "routeId": "copper-harbor/cold-chain",
+  "owner": "ops-copper-harbor",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "controlled",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

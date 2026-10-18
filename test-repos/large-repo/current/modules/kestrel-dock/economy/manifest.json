@@ -1,0 +1,13 @@
+{
+  "routeId": "kestrel-dock/economy",
+  "owner": "ops-kestrel-dock",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "deferred",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "synthetic-parcel-flow",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Synthetic dependency-free parcel routing fixture for large-change reviews",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/route-modules.test.js tests/retry-boundary.test.js tests/quote-boundary.test.js tests/contracts.test.js",
+    "test:routes": "node --test tests/route-modules.test.js",
+    "test:regressions": "node --test tests/retry-boundary.test.js tests/quote-boundary.test.js",
+    "test:contracts": "node --test tests/contracts.test.js",
+    "inspect": "node tools/inspect-fixture.mjs"
+  }
+}

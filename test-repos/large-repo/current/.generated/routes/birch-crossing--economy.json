@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "birch-crossing/economy",
+  "revision": "seconds-policy-migration",
+  "module": "modules/birch-crossing/economy/index.js",
+  "duration": {
+    "value": 4800,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 825,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "deferred",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

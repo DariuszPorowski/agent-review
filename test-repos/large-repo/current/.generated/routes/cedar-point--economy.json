@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "cedar-point/economy",
+  "revision": "seconds-policy-migration",
+  "module": "modules/cedar-point/economy/index.js",
+  "duration": {
+    "value": 4980,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 850,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "deferred",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

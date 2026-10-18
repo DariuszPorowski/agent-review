@@ -1,0 +1,13 @@
+{
+  "routeId": "birch-crossing/economy",
+  "owner": "ops-birch-crossing",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "deferred",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "routeId": "indigo-quay/oversize",
+  "owner": "ops-indigo-quay",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "freight",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

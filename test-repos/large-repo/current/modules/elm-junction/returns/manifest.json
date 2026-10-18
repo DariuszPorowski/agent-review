@@ -1,0 +1,13 @@
+{
+  "routeId": "elm-junction/returns",
+  "owner": "ops-elm-junction",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "reverse",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

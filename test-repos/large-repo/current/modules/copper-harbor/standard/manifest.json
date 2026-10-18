@@ -1,0 +1,13 @@
+{
+  "routeId": "copper-harbor/standard",
+  "owner": "ops-copper-harbor",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "standard",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "routeId": "juniper-falls/standard",
+  "owner": "ops-juniper-falls",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "standard",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

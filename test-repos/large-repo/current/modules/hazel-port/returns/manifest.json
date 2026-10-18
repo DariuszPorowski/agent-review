@@ -1,0 +1,13 @@
+{
+  "routeId": "hazel-port/returns",
+  "owner": "ops-hazel-port",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "reverse",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

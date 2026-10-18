@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "maple-landing/cold-chain",
+  "revision": "seconds-policy-migration",
+  "module": "modules/maple-landing/cold-chain/index.js",
+  "duration": {
+    "value": 6000,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 975,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "controlled",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

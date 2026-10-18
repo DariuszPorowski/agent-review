@@ -1,0 +1,13 @@
+{
+  "routeId": "maple-landing/returns",
+  "owner": "ops-maple-landing",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "reverse",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

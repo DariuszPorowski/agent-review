@@ -1,0 +1,13 @@
+{
+  "routeId": "elm-junction/cold-chain",
+  "owner": "ops-elm-junction",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "controlled",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "kestrel-dock/express",
+  "revision": "seconds-policy-migration",
+  "module": "modules/kestrel-dock/express/index.js",
+  "duration": {
+    "value": 5160,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 850,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "priority",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

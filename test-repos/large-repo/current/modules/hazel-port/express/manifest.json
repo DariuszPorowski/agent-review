@@ -1,0 +1,13 @@
+{
+  "routeId": "hazel-port/express",
+  "owner": "ops-hazel-port",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "priority",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

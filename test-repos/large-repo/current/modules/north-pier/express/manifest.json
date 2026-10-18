@@ -1,0 +1,13 @@
+{
+  "routeId": "north-pier/express",
+  "owner": "ops-north-pier",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "priority",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "routeId": "indigo-quay/returns",
+  "owner": "ops-indigo-quay",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "reverse",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

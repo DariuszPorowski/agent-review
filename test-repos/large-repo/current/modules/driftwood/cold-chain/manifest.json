@@ -1,0 +1,13 @@
+{
+  "routeId": "driftwood/cold-chain",
+  "owner": "ops-driftwood",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "controlled",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

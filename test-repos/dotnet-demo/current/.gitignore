@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+.local-nuget/
+.local-dotnet/
+.agent-review/
+TestResults/*
+!TestResults/coverage.cobertura.xml

@@ -1,0 +1,13 @@
+{
+  "routeId": "kestrel-dock/oversize",
+  "owner": "ops-kestrel-dock",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "freight",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "node-review-demo",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "node --test packages/core/test/*.test.mjs",
+    "coverage": "node tools/coverage-sources.mjs --before && c8 --reporter=lcov --reporter=json --include=packages/core/src/resolver.js node --test packages/core/test/*.test.mjs && node tools/coverage-sources.mjs"
+  },
+  "dependencies": { "lodash": "^4.17.21", "picocolors": "^1.1.1" },
+  "devDependencies": { "c8": "10.1.3" }
+}

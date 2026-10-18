@@ -1,0 +1,13 @@
+{
+  "routeId": "birch-crossing/returns",
+  "owner": "ops-birch-crossing",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "reverse",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

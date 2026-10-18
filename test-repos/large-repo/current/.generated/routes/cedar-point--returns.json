@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "cedar-point/returns",
+  "revision": "seconds-policy-migration",
+  "module": "modules/cedar-point/returns/index.js",
+  "duration": {
+    "value": 5460,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 925,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "reverse",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

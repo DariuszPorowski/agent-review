@@ -1,0 +1,13 @@
+{
+  "routeId": "hazel-port/cold-chain",
+  "owner": "ops-hazel-port",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "controlled",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

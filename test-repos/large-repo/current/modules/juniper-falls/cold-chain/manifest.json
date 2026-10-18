@@ -1,0 +1,13 @@
+{
+  "routeId": "juniper-falls/cold-chain",
+  "owner": "ops-juniper-falls",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "controlled",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

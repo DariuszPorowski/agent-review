@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "hazel-port/returns",
+  "revision": "seconds-policy-migration",
+  "module": "modules/hazel-port/returns/index.js",
+  "duration": {
+    "value": 6540,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 1075,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "reverse",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

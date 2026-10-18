@@ -1,0 +1,728 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "lockVersion": 2,
+  "applicationVersion": "0.2.0",
+  "dependencies": [],
+  "modules": [
+    {
+      "routeId": "amber-bay/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "amber-bay/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "amber-bay/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "amber-bay/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "amber-bay/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "amber-bay/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "birch-crossing/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "birch-crossing/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "birch-crossing/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "birch-crossing/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "birch-crossing/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "birch-crossing/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "cedar-point/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "cedar-point/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "cedar-point/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "cedar-point/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "cedar-point/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "cedar-point/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "copper-harbor/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "copper-harbor/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "copper-harbor/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "copper-harbor/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "copper-harbor/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "copper-harbor/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "driftwood/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "driftwood/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "driftwood/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "driftwood/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "driftwood/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "driftwood/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "elm-junction/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "elm-junction/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "elm-junction/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "elm-junction/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "elm-junction/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "elm-junction/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "fern-valley/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "fern-valley/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "fern-valley/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "fern-valley/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "fern-valley/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "fern-valley/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "granite-ridge/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "granite-ridge/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "granite-ridge/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "granite-ridge/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "granite-ridge/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "granite-ridge/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "hazel-port/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "hazel-port/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "hazel-port/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "hazel-port/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "hazel-port/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "hazel-port/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "indigo-quay/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "indigo-quay/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "indigo-quay/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "indigo-quay/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "indigo-quay/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "indigo-quay/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "juniper-falls/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "juniper-falls/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "juniper-falls/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "juniper-falls/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "juniper-falls/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "juniper-falls/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "kestrel-dock/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "kestrel-dock/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "kestrel-dock/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "kestrel-dock/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "kestrel-dock/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "kestrel-dock/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "larch-grove/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "larch-grove/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "larch-grove/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "larch-grove/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "larch-grove/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "larch-grove/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "maple-landing/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "maple-landing/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "maple-landing/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "maple-landing/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "maple-landing/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "maple-landing/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "north-pier/standard",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "standard",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "north-pier/express",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "priority",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "north-pier/cold-chain",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "controlled",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "north-pier/oversize",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "freight",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "north-pier/economy",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "deferred",
+      "parcelLimit": 12
+    },
+    {
+      "routeId": "north-pier/returns",
+      "schemaVersion": 2,
+      "policyRevision": "seconds-reliability-v2",
+      "durationUnit": "seconds",
+      "serviceTier": "reverse",
+      "parcelLimit": 12
+    }
+  ]
+}

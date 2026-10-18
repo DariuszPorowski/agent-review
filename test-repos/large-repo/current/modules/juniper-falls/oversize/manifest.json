@@ -1,0 +1,13 @@
+{
+  "routeId": "juniper-falls/oversize",
+  "owner": "ops-juniper-falls",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "freight",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "copper-harbor/oversize",
+  "revision": "seconds-policy-migration",
+  "module": "modules/copper-harbor/oversize/index.js",
+  "duration": {
+    "value": 4680,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 120,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 800,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "freight",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

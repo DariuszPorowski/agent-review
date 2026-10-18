@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "north-pier/cold-chain",
+  "revision": "seconds-policy-migration",
+  "module": "modules/north-pier/cold-chain/index.js",
+  "duration": {
+    "value": 6180,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 40,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 1000,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "controlled",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "routeId": "maple-landing/standard",
+  "owner": "ops-maple-landing",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "standard",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

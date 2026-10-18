@@ -1,0 +1,13 @@
+{
+  "routeId": "larch-grove/standard",
+  "owner": "ops-larch-grove",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "standard",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "routeId": "cedar-point/cold-chain",
+  "owner": "ops-cedar-point",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "controlled",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

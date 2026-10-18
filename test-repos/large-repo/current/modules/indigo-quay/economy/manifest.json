@@ -1,0 +1,13 @@
+{
+  "routeId": "indigo-quay/economy",
+  "owner": "ops-indigo-quay",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "deferred",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

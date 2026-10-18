@@ -1,0 +1,13 @@
+{
+  "routeId": "fern-valley/express",
+  "owner": "ops-fern-valley",
+  "entrypoint": "index.js",
+  "schemaVersion": 2,
+  "durationUnit": "seconds",
+  "policyPath": "reliability.retryPolicy",
+  "serviceTier": "priority",
+  "capabilities": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

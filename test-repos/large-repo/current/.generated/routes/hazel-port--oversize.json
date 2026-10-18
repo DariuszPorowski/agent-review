@@ -1,0 +1,29 @@
+{
+  "generatedBy": "tools/scaffold.mjs",
+  "schemaVersion": 2,
+  "routeId": "hazel-port/oversize",
+  "revision": "seconds-policy-migration",
+  "module": "modules/hazel-port/oversize/index.js",
+  "duration": {
+    "value": 5580,
+    "unit": "seconds"
+  },
+  "retry": {
+    "source": "reliability.retryPolicy",
+    "maxAttempts": 3,
+    "delayMs": 10
+  },
+  "constraints": {
+    "maxWeightKg": 120,
+    "maxParcels": 12
+  },
+  "quote": {
+    "baseCents": 925,
+    "currency": "synthetic-cents"
+  },
+  "serviceTier": "freight",
+  "enabledFeatures": [
+    "parcel-limit",
+    "second-based-eta"
+  ]
+}

@@ -10,6 +10,42 @@ then follow its impact down to findings, dependency evidence, and source diffs.
 prompt provenance, and briefing below. AI text and prompt provenance are
 illustrative; changes, graph, and findings come from the analyzer. Click to enlarge.*
 
+## Evaluation projects
+
+The four [review test projects](test-repos/) used for large-change and UX
+validation are checked in as portable source fixtures. Each guide describes
+the intended change, what to evaluate, explicit test/coverage commands, and
+which evidence must remain unknown or inferred.
+
+| Project | Evaluate |
+|---|---|
+| [Large repository](test-repos/large-repo/README.md) | 642 changed files, internal evidence consolidation, implementation cohorts, unchanged consumers, oversized source, and two planted regressions |
+| [Node.js / TypeScript](test-repos/node-demo/README.md) | npm workspaces, JS/TS/JSX/TSX graph and package changes, isolated tests, and exact-source coverage |
+| [Python coverage](test-repos/coverage-demo/README.md) | Inferred versus confirmed paths, aggregate coverage, intentionally untested exits, and exact source-location discussion |
+| [C# / .NET](test-repos/dotnet-demo/README.md) | Partial classes, interfaces, threshold contracts, NuGet locks, xUnit outcomes, and aggregate-only coverage |
+
+From this checkout, create each sample in a **new directory outside this
+repository**:
+
+```powershell
+node .\test-repos\prepare.mjs large-repo C:\temp\agent-review-large-repo-sample
+node .\test-repos\prepare.mjs node-demo C:\temp\agent-review-node-demo-sample
+node .\test-repos\prepare.mjs coverage-demo C:\temp\agent-review-coverage-demo-sample
+node .\test-repos\prepare.mjs dotnet-demo C:\temp\agent-review-dotnet-demo-sample
+```
+
+The preparer recreates independent local Git baselines without copying nested
+Git metadata, caches, dependencies, or machine-specific coverage reports.
+Existing destinations are rejected, including the original validation repos.
+Setup never installs dependencies, runs tests, or changes your extension.
+Open the printed directory with **Change repository** in Agent Review.
+The large project uses committed `main` / `large-change` targets; the other
+three leave their feature changes uncommitted for **Worktree** review against
+`HEAD`. Do not review the fixture directories as if they were standalone repos.
+
+Run the setup/regression checks with `node --test test-repos/tests/prepare.test.mjs`.
+The large sample's two failing tests are intentional; its guide identifies them.
+
 ## Features and insights
 
 ### Understand the change
