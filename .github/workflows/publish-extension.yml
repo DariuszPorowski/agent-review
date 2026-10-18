@@ -23,7 +23,9 @@ permissions:
 
 concurrency:
   group: extension-distribution-${{ github.ref }}
-  cancel-in-progress: false
+  # Cancel superseded runs. GITHUB_TOKEN can't create a release for an older
+  # commit whose .github/workflows differ from the default branch (HTTP 403).
+  cancel-in-progress: true
 
 jobs:
   cli-discovery:
