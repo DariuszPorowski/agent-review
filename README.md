@@ -109,6 +109,10 @@ preview of its opening body paragraph; the full message is expandable.
 The originating prompt appears directly below the message with the same
 two-line preview and expandable full text, preserving its session-history link.
 Missing history is explicit; intent supplements rather than replaces code evidence.
+Session file references use the repository's Windows or POSIX path semantics
+regardless of the host OS, so in-repository paths remain repository-relative for
+transcript details and attribution. Outside-repository paths are excluded from
+attribution.
 
 ### Check repository rules
 

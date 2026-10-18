@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { posix, win32 } from "node:path";
 
 const MAX_TEXT = 900;
 const PATH_KEYS = new Set(["path", "file", "filePath", "resourceUri", "cwd", "workspace"]);
@@ -10,10 +10,15 @@ function truncate(value, limit = MAX_TEXT) {
 
 function repositoryPath(value, repoRoot) {
     if (typeof value !== "string" || !value.trim()) return null;
-    const normalized = value.replaceAll("/", "\\");
-    const candidate = isAbsolute(normalized) ? resolve(normalized) : resolve(repoRoot, normalized);
-    const rel = relative(repoRoot, candidate);
-    if (rel.startsWith("..") || isAbsolute(rel)) return null;
+    const root = repoRoot.replaceAll("\\", "/");
+    const paths = /^(?:[A-Za-z]:\/|\/\/)/.test(root) ? win32 : posix;
+    const normalized = value.replaceAll("\\", "/");
+    // Drive-relative paths depend on process state, not the saved repository root.
+    if (/^[A-Za-z]:(?!\/)/.test(normalized)) return null;
+    if (paths === posix && /^(?:[A-Za-z]:|\/\/)/.test(normalized)) return null;
+    const candidate = paths.resolve(root, normalized);
+    const rel = paths.relative(root, candidate);
+    if (rel === ".." || rel.startsWith(`..${paths.sep}`) || paths.isAbsolute(rel)) return null;
     return rel.replaceAll("\\", "/");
 }
 

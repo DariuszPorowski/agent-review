@@ -73,6 +73,8 @@ jobs:
         run: node --test .github/extensions/agent-review/tests/test-distribution.mjs .github/extensions/agent-review/tests/test-bootstrap.mjs .github/extensions/agent-review/tests/test-python-runtime.mjs
       - name: Check review evidence budgets and repository rules
         run: node --test .github/extensions/agent-review/tests/test-custom-analysis.mjs .github/extensions/agent-review/tests/test-review-contracts.mjs
+      - name: Check cross-platform session paths and attribution
+        run: node --test .github/extensions/agent-review/tests/test-session-context.mjs
       - name: Build prepared extension
         run: node scripts/build-distribution.mjs "${{ runner.temp }}/agent-review-dist"
       - name: Verify bundled analyzers

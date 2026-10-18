@@ -9,6 +9,59 @@ import {
 
 const ROOT = "C:\\repo";
 
+test("session paths use repository path semantics on every host", () => {
+    const cases = [
+        ["C:\\repo", "C:\\repo\\src\\a.py", "src/a.py"],
+        ["C:/repo", "C:/repo/src/a.py", "src/a.py"],
+        ["C:\\repo", "c:\\REPO\\src\\a.py", "src/a.py"],
+        ["C:\\repo", "src/a.py", "src/a.py"],
+        ["C:\\repo", "src\\a.py", "src/a.py"],
+        ["\\\\server\\share\\repo", "\\\\server\\share\\repo\\src\\a.py", "src/a.py"],
+        ["/repo", "/repo/src/a.py", "src/a.py"],
+        ["/repo", "src/a.py", "src/a.py"],
+        ["/repo", "src\\a.py", "src/a.py"],
+        ["/repo", "./src/../src/a.py", "src/a.py"],
+        ["/repo", "..notes/a.py", "..notes/a.py"],
+        ["C:\\repo", "..notes\\a.py", "..notes/a.py"],
+        ["C:\\repo", "C:\\outside\\a.py", null],
+        ["C:\\repo", "D:\\repo\\a.py", null],
+        ["C:\\repo", "C:\\repo-other\\a.py", null],
+        ["C:\\repo", "..\\outside\\a.py", null],
+        ["\\\\server\\share\\repo", "\\\\server\\other\\a.py", null],
+        ["/repo", "/outside/a.py", null],
+        ["/repo", "/REPO/src/a.py", null],
+        ["/repo", "/repo-other/a.py", null],
+        ["/repo", "../outside/a.py", null],
+        ["/repo", "..\\outside\\a.py", null],
+        ["/repo", "C:\\repo\\a.py", null],
+        ["/repo", "\\\\server\\share\\a.py", null],
+        ["/repo", "C:src\\a.py", null],
+        ["C:\\repo", "C:src\\a.py", null],
+    ];
+    for (const [root, path, expected] of cases) {
+        const label = `${root}: ${path}`;
+        for (const patch of [false, true]) {
+            const context = buildSessionContext([
+                { id: "u", type: "user.message", timestamp: "2026-10-03T10:00:00Z",
+                    data: { content: "Implement the feature." } },
+                { id: "t", type: "tool.execution_start", timestamp: "2026-10-03T10:00:01Z",
+                    data: { toolName: "apply_patch", arguments: patch
+                        ? { patch: `*** Update File: ${path}\n` } : { path } } },
+            ], root);
+            assert.deepEqual(context.referenced_files, expected ? [expected] : [], label);
+            const tool = context.timeline.find((item) => item.role === "tool");
+            assert.deepEqual(tool.referenced_files, expected ? [expected] : [], label);
+            assert.equal(tool.detail, `${patch ? "update " : ""}${expected || path}`, label);
+            const matches = findSessionAttribution(context, expected || "src/a.py");
+            assert.equal(matches.length, expected ? 1 : 0, label);
+            if (expected) {
+                assert.equal(matches[0].confidence, "likely", label);
+                assert.equal(matches[0].prompt, "Implement the feature.", label);
+            }
+        }
+    }
+});
+
 test("identifies persisted Agent Review explanation sessions", () => {
     assert.equal(
         isInternalAgentReviewPrompt("[Agent Review internal request — exclude from change attribution]\n\nExplain code."),
