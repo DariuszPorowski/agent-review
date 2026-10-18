@@ -4,6 +4,7 @@ import { join, posix } from "node:path";
 import { ExplanationValidationError } from "./ai-response.mjs";
 import { isTestPath } from "./web/languages.mjs";
 import { repositoryRuleReferences } from "./review-contracts.mjs";
+import { impactSlice } from "./web/impact-model.mjs";
 
 const VERSION = 6;
 export const REVIEW_LIMITS = Object.freeze({
@@ -120,6 +121,28 @@ export function planReview(model, sources = [], limits = REVIEW_LIMITS) {
             id: item.id, path: change.path, kind: "change", evidence: [item],
             rule_paths: rulesByPath.get(change.path) || [],
         });
+    }
+    const supporting = new Set();
+    for (const node of (model.nodes || []).filter((node) => node.change !== "unchanged"
+        && ["function", "method", "constructor"].includes(node.kind))) {
+        const slice = impactSlice(model, node.id, { depth: 1, direction: "consumers", maxNodes: 30 });
+        for (const consumer of slice.nodes.filter((item) => item.change === "unchanged" && item.start_line && item.path)) {
+            const key = `${consumer.path}:${consumer.start_line}:${consumer.end_line}`;
+            if (supporting.has(key)) continue;
+            supporting.add(key);
+            const source = model.source_files?.[consumer.path]?.current;
+            if (typeof source !== "string") {
+                gaps.push({ path: consumer.path, reason: "An unchanged consumer's saved source is unavailable." });
+                continue;
+            }
+            const lines = source.split(/\r?\n/).slice(consumer.start_line - 1,
+                Math.min(consumer.end_line || consumer.start_line + 40, consumer.start_line + 199))
+                .map((text, index) => ({ line: consumer.start_line + index, text }));
+            for (const item of splitLines(consumer.path, "current", lines, limits.evidenceCharacters, gaps)) {
+                units.push({ id: item.id, path: item.path, kind: "unchanged consumer", evidence: [item],
+                    affected_by: node.id, relationship_evidence: slice.paths[consumer.id] });
+            }
+        }
     }
     const points = new Map();
     for (const node of model.nodes || []) if (node.change !== "unchanged" && node.path

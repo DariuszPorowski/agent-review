@@ -718,6 +718,15 @@ marker path { fill: var(--cp-border-strong); }
   background: var(--cp-bg-elevated);
 }
 .code-lines { width: max-content; min-width: 100%; }
+.impact-toolbar { padding: 12px; border-bottom: 1px solid var(--cp-border); overflow-wrap: anywhere; }
+.impact-toolbar select, .impact-toolbar button { max-width: 100%; margin: 6px 8px 0 0; }
+.impact-graph { min-height: 440px; }
+.impact-evidence { margin-top: 12px; overflow-wrap: anywhere; }
+.workspace.impact-mode .legend, .workspace.impact-mode .graph-controls label,
+.workspace.impact-mode #review-search { display: none; }
+.graph-controls { flex-wrap: wrap; min-width: 0; }
+.source-heading, .source-heading > div { min-width: 0; }
+.queue-item > .link-button { margin: 0 8px 6px; font-size: 12px; }
 .source-chunk { content-visibility: auto; contain-intrinsic-block-size: auto 2000px; }
 .code-row { display: grid; grid-template-columns: calc(var(--source-line-digits, 4) * 1ch + 8px) calc(var(--source-line-digits, 4) * 1ch + 8px) 16px minmax(max-content, 1fr); min-height: 20px; }
 .code-row > span, .code-row > code { padding: 1px 8px; white-space: pre; }

@@ -4,6 +4,7 @@ import { resolveSymbolReference } from "/symbol-links.mjs";
 import { packageEvidenceLinks } from "/package-presentation.mjs";
 import { resolveSourceReference } from "/source-references.mjs";
 import { unchangedDiffContext, diffSegments } from "/diff-context.mjs";
+import { impactSlice } from "/impact-model.mjs";
 import { isReviewSymbol, isTestPath, languageForPath } from "/languages.mjs";
 import { ConnectionFeedback } from "/connection-feedback.mjs";
 import { describeAnalysisWarning } from "/analysis-limitations.mjs";
@@ -40,6 +41,7 @@ const state = {
     detailVisible: false,
     sourceHistory: { entries: [], index: -1, pending: -1 },
     appliedServerSelection: null,
+    impact: null,
     closedFindingKeys: new Set(),
     reviewLedger: new Map(),
     customOpenKeys: new Set(),
@@ -47,7 +49,7 @@ const state = {
 const elements = Object.fromEntries([
     "review-target-form", "review-mode", "review-ref", "review-target-label", "repository-identity", "review-list-refresh", "review-more", "review-options-status", "review-picker-notice", "clean-review", "change-brief",
     "status", "refresh", "cancel-analysis", "analysis-cancelled", "source-context-notice", "connection-notice", "reconnect", "worktree-notice", "worktree-notice-text", "worktree-reanalyze", "error", "analysis-progress", "progress-phase", "progress-message", "progress-percent",
-    "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize",
+    "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize", "impact-view", "source-impact",
     "graph", "level-label", "graph-title", "zoom-out", "changed-only", "review-search", "detail-toggle", "detail", "detail-close", "source-panel", "source-title",
     "source-provenance", "source-decisions", "source-annotation", "source-risk", "source-close", "source", "source-ruler", "source-back", "source-forward",
     "session-history-panel", "session-history-title", "session-history-meta", "session-history-close", "session-transcript",
@@ -370,6 +372,11 @@ function renderCards(container, items, emptyText) {
             toggle.addEventListener("click", () => toggleFinding(item));
             if (closed) heading.append(el("span", "closed-label", "Closed"));
             wrapper.append(card, toggle);
+            const impact = el("button", "link-button", "Impact");
+            impact.type = "button";
+            impact.setAttribute("aria-label", `Show impact of ${item.title || item.name}`);
+            impact.addEventListener("click", () => openImpact(item));
+            if (!item.collect_mode) wrapper.append(impact);
             container.append(wrapper);
         } else {
             container.append(card);
@@ -457,6 +464,104 @@ function markSelectedCards() {
     document.querySelectorAll(".review-card[data-item-id]").forEach((card) =>
         card.classList.toggle("is-selected", card.dataset.itemId === state.selected?.id));
 }
+
+function openImpact(item = state.selected) {
+    const model = state.payload?.model;
+    if (!model) return;
+    const seed = item?.node_id || item?.package_id || item?.target
+        || item?.evidence_ids?.find((id) => model.evidence?.[id]?.path) || item?.id
+        || model.attention?.find((finding) => finding.node_id)?.node_id
+        || model.nodes.find((node) => node.change !== "unchanged" && ["function", "method"].includes(node.kind))?.id;
+    state.impact = { seed, depth: 1, direction: "both", pendingFocus: true };
+    state.mode = "impact";
+    state.selected = null;
+    renderEmptyDetail();
+    setDetailVisible(false);
+    state.source = null;
+    state.selectionEpoch++;
+    elements.source_panel.classList.add("hidden");
+    render();
+}
+
+function focusImpactNode(id = state.impact?.seed) {
+    const nodes = [...elements.graph.querySelectorAll(".impact-graph .node")];
+    const node = nodes.find((node) => node.dataset.nodeId === id) || nodes[0];
+    node?.scrollIntoView({ block: "nearest" });
+    node?.focus({ preventScroll: true });
+}
+
+function renderImpact(model, focus = null) {
+    const options = state.impact || {};
+    const slice = impactSlice(model, options.seed, { depth: options.depth || 1, direction: options.direction || "both" });
+    elements.graph.replaceChildren();
+    const controls = el("div", "impact-toolbar");
+    controls.append(el("p", "muted", "Static evidence, not proof of a defect. Arrows retain their dependency direction: caller → callee."));
+    const counts = el("p", "impact-counts", Object.entries(slice.counts).map(([role, count]) => `${role}: ${count}`).join(" · "));
+    const direction = el("select", "");
+    direction.setAttribute("aria-label", "Impact relationships");
+    for (const [value, label] of [["both", "Consumers and dependencies"], ["consumers", "Consumers"], ["dependencies", "Dependencies"]]) {
+        const option = el("option", "", label);
+        option.value = value;
+        option.selected = value === (options.direction || "both");
+        direction.append(option);
+    }
+    direction.addEventListener("change", () => { state.impact.direction = direction.value; renderImpact(model, "direction"); });
+    const expand = el("button", "", `Expand one step (${options.depth || 1}/4)`);
+    expand.type = "button";
+    expand.disabled = options.depth >= 4 || !slice.boundary;
+    expand.addEventListener("click", () => { state.impact.depth++; renderImpact(model, "expand"); });
+    controls.append(counts, direction, expand);
+    for (const gap of slice.gaps) controls.append(el("p", "muted", gap));
+    const graph = el("div", "impact-graph");
+    elements.graph.append(controls, graph);
+    renderGraph(graph, slice.nodes, slice.edges, (item) => {
+        state.selected = item;
+        renderDetail(item);
+        setDetailVisible(true);
+        const evidence = el("section", "impact-evidence");
+        evidence.append(el("h3", "", item.impact_role || "Relationship evidence"));
+        const path = slice.paths[item.id]?.length ? slice.paths[item.id]
+            : item.source ? [item.id] : slice.edges.filter((edge) => edge.source === item.id || edge.target === item.id).map((edge) => edge.id);
+        const related = path.map((id) => slice.edges.find((edge) => edge.id === id)).filter(Boolean);
+        for (const edge of related) {
+            const source = model.nodes.find((node) => node.id === edge.source);
+            const target = model.nodes.find((node) => node.id === edge.target);
+            evidence.append(el("p", "", `${source?.name || edge.source} ${edge.change === "removed" ? `formerly ${edge.type} (base snapshot)` : edge.type} ${target?.name || edge.target} · relationship confidence: ${edge.confidence || "not reported"}`));
+            for (const id of edge.evidence_ids || []) if (model.evidence?.[id]) evidence.append(evidenceButton(id));
+        }
+        if (item.path) {
+            const open = el("button", "", "Open source");
+            open.type = "button";
+            open.addEventListener("click", () => {
+                state.sourceReturnFocus = [...elements.graph.querySelectorAll(".impact-graph .node")]
+                    .find((node) => node.dataset.nodeId === item.id);
+                selectItem(item, false);
+            });
+            evidence.append(open);
+        }
+        if (item.impact_role === "Related test") evidence.append(el("p", "muted", "Static test relationship. Execution of this affected behavior is not established by this graph."));
+        elements.detail.append(evidence);
+    });
+    if (focus === "direction" || (focus === "expand" && expand.disabled)) direction.focus({ preventScroll: true });
+    else if (focus === "expand") expand.focus({ preventScroll: true });
+    else if (options.pendingFocus) {
+        options.pendingFocus = false;
+        focusImpactNode();
+    }
+}
+
+elements.impact_view.addEventListener("click", () => {
+    if (state.mode === "impact") { state.mode = "graph"; render(); }
+    else openImpact();
+});
+elements.source_impact.addEventListener("click", () => {
+    const source = state.source;
+    const symbol = state.payload?.model?.nodes.filter((node) => node.path === source?.path
+        && node.start_line <= source.start_line && node.end_line >= source.start_line
+        && ["function", "method", "constructor"].includes(node.kind))
+        .sort((a, b) => (a.end_line - a.start_line) - (b.end_line - b.start_line))[0];
+    openImpact(symbol || { id: `file:${source?.path}` });
+});
 
 function openReviewItem(item) {
     if (item.collect_mode) {
@@ -3519,10 +3624,17 @@ function render() {
     const workspace = document.querySelector(".workspace");
     workspace.classList.toggle("package-mode", state.mode === "packages");
     workspace.classList.toggle("walkthrough-mode", state.mode === "walkthrough");
+    workspace.classList.toggle("impact-mode", state.mode === "impact");
     elements.zoom_out.disabled = state.mode === "graph" && state.stack.length === 0;
     elements.zoom_out.title = state.mode !== "graph" ? "Back to architecture" : parent ? `Back from ${parent.name}` : "Already at architecture level";
     elements.zoom_out.textContent = state.mode === "walkthrough" ? "Architecture" : "← Back";
-    if (state.mode === "walkthrough") {
+    elements.impact_view.setAttribute("aria-pressed", String(state.mode === "impact"));
+    elements.impact_view.textContent = state.mode === "impact" ? "Structure" : "Impact";
+    if (state.mode === "impact") {
+        elements.level_label.textContent = "CHANGE IMPACT";
+        elements.graph_title.textContent = "Evidence-backed impact";
+        renderImpact(model);
+    } else if (state.mode === "walkthrough") {
         elements.level_label.textContent = "REVIEW PLAN";
         elements.graph_title.textContent = "Risk-first walkthrough";
         renderReviewPlan(model, groupedObservations);
@@ -3728,6 +3840,13 @@ elements.source_close.addEventListener("click", () => {
         clearSelection();
         setDetailVisible(false);
     }
+    if (state.mode === "impact") {
+        if (state.sourceReturnFocus?.isConnected) {
+            state.sourceReturnFocus.scrollIntoView({ block: "nearest" });
+            state.sourceReturnFocus.focus({ preventScroll: true });
+        } else focusImpactNode();
+    }
+    state.sourceReturnFocus = null;
 });
 elements.source_back.addEventListener("click", () => navigateSource(-1));
 elements.source_forward.addEventListener("click", () => navigateSource(1));

@@ -82,6 +82,16 @@ The Node, Go, and Rust runners' eligibility and coverage constraints are detaile
 below. Mixed-language test execution is not
 available; the shared router rejects combined runs rather than mixing evidence.
 
+### Focus on impact
+
+The **Impact** lens starts from a finding, changed file, or function and follows
+saved relationship evidence to unchanged consumers, dependencies, and related
+tests. **Expand one step** reveals bounded additional paths. Every connection
+retains its original dependency direction and links to saved source evidence.
+Static connectivity is not proof of a defect or execution; unavailable evidence
+and view limits remain explicit. The internal review scheduler also includes
+bounded saved excerpts of unchanged direct consumers.
+
 ### Inspect the actual code
 
 Open **Diff**, **Current**, or **Base** for the selected snapshot. Current and

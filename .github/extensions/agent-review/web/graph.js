@@ -24,12 +24,35 @@ function wrapLabel(value, max = 24) {
 const NODE_CELL_WIDTH = 216;
 const NODE_CELL_HEIGHT = 184;
 
-function graphHeight(nodeCount, width) {
+function graphHeight(nodeCount, width, nodes = []) {
+    if (nodes.some((node) => node.impact_role)) {
+        if (width < 650) return Math.max(440, nodeCount * NODE_CELL_HEIGHT);
+        const groups = new Map();
+        for (const node of nodes) {
+            const group = ["Dependency", "Changed focus"].includes(node.impact_role) ? node.impact_role : "consumer";
+            groups.set(group, (groups.get(group) || 0) + 1);
+        }
+        return Math.max(440, Math.max(...groups.values()) * NODE_CELL_HEIGHT);
+    }
     const columns = Math.max(1, Math.floor(width / NODE_CELL_WIDTH));
     return Math.max(440, Math.ceil(nodeCount / columns) * NODE_CELL_HEIGHT);
 }
 
 function layout(nodes, width, height) {
+    if (nodes.some((node) => node.impact_role)) {
+        const groups = [nodes.filter((node) => node.impact_role === "Dependency"),
+            nodes.filter((node) => node.impact_role === "Changed focus"),
+            nodes.filter((node) => !["Dependency", "Changed focus"].includes(node.impact_role))];
+        let offset = 0;
+        return new Map(groups.flatMap((group, lane) => {
+            const points = group.map((node, index) => [node.id, savedPositions.get(`impact:${node.id}`) || {
+                x: width >= 650 ? width * (lane + .5) / 3 : width / 2,
+                y: width >= 650 ? height * (index + 1) / (group.length + 1) : (offset + index) * NODE_CELL_HEIGHT + NODE_CELL_HEIGHT / 2,
+            }]);
+            offset += group.length;
+            return points;
+        }));
+    }
     const columns = Math.min(nodes.length, Math.max(1, Math.floor(width / NODE_CELL_WIDTH)));
     const rows = Math.ceil(nodes.length / columns);
     const cellWidth = width / columns;
@@ -45,6 +68,7 @@ function layout(nodes, width, height) {
 }
 
 function metricParts(node) {
+    if (node.impact_role) return [{ text: node.impact_role }, { text: ` · ${node.change || "unchanged"}` }];
     const metrics = node.metrics || {};
     const change = node.change || "unchanged";
     const changeClass = { added: "delta-add", modified: "delta-modified", removed: "delta-remove", deleted: "delta-remove" }[change];
@@ -73,7 +97,7 @@ function control(label, title, handler) {
 }
 
 export function resizeGraph(container) {
-    graphResizers.get(container.querySelector(":scope > svg.graph-canvas"))?.();
+    graphResizers.get(container.querySelector("svg.graph-canvas"))?.();
 }
 
 export function renderGraph(container, nodes, edges, onSelect) {
@@ -86,7 +110,7 @@ export function renderGraph(container, nodes, edges, onSelect) {
         return;
     }
     let width = Math.max(container.clientWidth || 320, 320);
-    let height = graphHeight(nodes.length, width);
+    let height = graphHeight(nodes.length, width, nodes);
     const root = svg("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", class: "graph-canvas" });
     const defs = svg("defs");
     const marker = svg("marker", {
@@ -122,9 +146,17 @@ export function renderGraph(container, nodes, edges, onSelect) {
     const updateEdge = (record) => {
         const source = positions.get(record.edge.source);
         const target = positions.get(record.edge.target);
+        const dx = target.x - source.x, dy = target.y - source.y;
+        const scale = Math.min(dx ? 100 / Math.abs(dx) : Infinity, dy ? 56 / Math.abs(dy) : Infinity);
+        const start = { x: source.x + dx * scale, y: source.y + dy * scale };
+        const end = { x: target.x - dx * scale, y: target.y - dy * scale };
+        const horizontal = Math.abs(dx) >= Math.abs(dy);
         record.path.setAttribute(
             "d",
-            `M ${source.x} ${source.y} C ${(source.x + target.x) / 2} ${source.y}, ${(source.x + target.x) / 2} ${target.y}, ${target.x} ${target.y}`,
+            !dx && !dy ? `M ${source.x + 96} ${source.y - 20} C ${source.x + 170} ${source.y - 100}, ${source.x + 170} ${source.y + 100}, ${source.x + 96} ${source.y + 20}`
+                : !dx ? `M ${source.x + 100} ${source.y} C ${source.x + 150} ${source.y}, ${target.x + 150} ${target.y}, ${target.x + 100} ${target.y}`
+                : horizontal ? `M ${start.x} ${start.y} C ${(start.x + end.x) / 2} ${start.y}, ${(start.x + end.x) / 2} ${end.y}, ${end.x} ${end.y}`
+                    : `M ${start.x} ${start.y} C ${start.x} ${(start.y + end.y) / 2}, ${end.x} ${(start.y + end.y) / 2}, ${end.x} ${end.y}`,
         );
         if (record.label) {
             record.label.setAttribute("x", String((source.x + target.x) / 2));
@@ -195,6 +227,7 @@ export function renderGraph(container, nodes, edges, onSelect) {
             role: "button",
             "aria-label": `${displayName(node)}, ${metricText(node)}, ${countLabel(node._attention_count || 0, "attention finding")}`,
         });
+        group.dataset.nodeId = node.id;
         const title = svg("title");
         title.textContent = `${displayName(node)}\n${metricText(node)}${node._attention_count
             ? `\n${countLabel(node._attention_count, "attention finding")} · highest impact ${node._attention_score}` : ""}`;
@@ -264,7 +297,7 @@ export function renderGraph(container, nodes, edges, onSelect) {
             activeDrag.point.x += dx;
             activeDrag.point.y += dy;
             activeDrag.last = current;
-            savedPositions.set(activeDrag.node.id, { ...activeDrag.point });
+            savedPositions.set(activeDrag.node.impact_role ? `impact:${activeDrag.node.id}` : activeDrag.node.id, { ...activeDrag.point });
             activeDrag.group.setAttribute("transform", `translate(${activeDrag.point.x} ${activeDrag.point.y})`);
             edgeRecords
                 .filter((record) => record.edge.source === activeDrag.node.id || record.edge.target === activeDrag.node.id)
@@ -326,7 +359,7 @@ export function renderGraph(container, nodes, edges, onSelect) {
         const nextWidth = Math.max(measuredWidth, 320);
         if (nextWidth === width) return;
         width = nextWidth;
-        height = graphHeight(nodes.length, width);
+        height = graphHeight(nodes.length, width, nodes);
         root.setAttribute("viewBox", `0 0 ${width} ${height}`);
         for (const [id, point] of layout(nodes, width, height)) {
             Object.assign(positions.get(id), point);
