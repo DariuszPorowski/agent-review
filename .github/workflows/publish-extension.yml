@@ -109,6 +109,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -143,6 +145,8 @@ jobs:
           cd "$DIST_ROOT"
           git init --initial-branch=dist
           git remote add origin "${SERVER_URL}/${REPOSITORY}.git"
+          # Checkout persists no credentials, so authenticate the dist remote with
+          # GH_TOKEN through gh's credential helper.
           git config --local "credential.${SERVER_URL}.helper" ""
           git config --local --add "credential.${SERVER_URL}.helper" '!gh auth git-credential'
           git config user.name "github-actions[bot]"
