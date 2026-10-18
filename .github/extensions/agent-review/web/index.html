@@ -151,6 +151,11 @@
                     <div id="source-ruler" class="code-ruler hidden" role="navigation" aria-label="Changes in this file"></div>
                 </div>
                 <div class="source-side">
+                    <div class="discussion-tabs" role="group" aria-label="Source context">
+                        <button id="show-evidence" type="button" aria-pressed="true">Evidence</button>
+                        <button id="show-discussion" type="button" aria-pressed="false">Discussion</button>
+                    </div>
+                    <aside id="item-discussion" class="item-discussion hidden" aria-label="Item discussion"></aside>
                     <aside id="source-provenance" class="source-provenance hidden" aria-live="polite"></aside>
                     <aside id="source-annotation" class="source-annotation hidden" aria-live="polite"></aside>
                     <aside id="source-decisions" class="source-decisions hidden" aria-label="Code path changes"></aside>

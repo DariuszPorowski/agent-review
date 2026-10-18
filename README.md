@@ -92,6 +92,22 @@ Static connectivity is not proof of a defect or execution; unavailable evidence
 and view limits remain explicit. The internal review scheduler also includes
 bounded saved excerpts of unchanged direct consumers.
 
+### Discuss a review item
+
+Choose **Ask** on an attention card or **Ask about this** on an impact component
+or relationship. The source workspace switches its right panel between
+**Evidence** and **Discussion**, without losing the code in front of you.
+Questions and cited answers are pinned to that item and saved snapshot; later
+worktree edits and newer review snapshots do not silently change the thread.
+Conversations persist in the Copilot session workspace.
+
+Discussion is read-only. It may retrieve bounded source ranges from the reviewed
+snapshot, but cannot execute tools, modify files, run tests, fetch URLs, or read
+later worktree content. Source citations are validated against supplied ranges.
+Activity, evidence limitations, errors, and **Stop answer** are explicit.
+Only one answer runs at a time per item; a stopped answer is not presented as
+complete. Recent conversation context is bounded independently of stored history.
+
 ### Inspect the actual code
 
 Open **Diff**, **Current**, or **Base** for the selected snapshot. Current and

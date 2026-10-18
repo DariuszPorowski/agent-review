@@ -35,6 +35,7 @@ const staticFiles = new Map([
     ["/source-references.mjs", "source-references.mjs"],
     ["/diff-context.mjs", "diff-context.mjs"],
     ["/impact-model.mjs", "impact-model.mjs"],
+    ["/item-discussion-ui.mjs", "item-discussion-ui.mjs"],
     ["/decision-map.mjs", "decision-map.mjs"],
     ["/count-format.mjs", "count-format.mjs"],
     ["/review-plan.mjs", "review-plan.mjs"],
@@ -81,6 +82,9 @@ export function startReviewServer(state, options = {}) {
             update = { type: event.type, partial: true, review_generation: event.review_generation,
                 ...(event.type === "selection" ? { selection: event.selection } : { annotations: event.annotations }) };
         }
+        if (event.type === "discussion") update = {
+            type: event.type, partial: true, review_generation: event.review_generation, discussion_update: event.discussion_update,
+        };
         if (["rule-check-progress", "custom-analysis-progress"].includes(event.type)) {
             update = { type: event.type, partial: true,
                 ...(event.type === "rule-check-progress" ? { rule_check: event.rule_check } : { custom_analyses: event.custom_analyses }) };
@@ -121,6 +125,15 @@ export function startReviewServer(state, options = {}) {
             }
             if (req.method === "GET" && pathname === "/api/state") {
                 sendJson(res, browserSnapshot(state.snapshot()));
+                return;
+            }
+            if (req.method === "GET" && pathname === "/api/discussion") {
+                sendJson(res, { thread: await state.discussionFor(requestUrl.searchParams.get("id")),
+                    available: Boolean(state.generateDiscussion) });
+                return;
+            }
+            if (req.method === "POST" && pathname === "/api/discussion") {
+                sendJson(res, { thread: await state.askDiscussion(await readJson(req)) }, 202);
                 return;
             }
             if (req.method === "GET" && pathname === "/api/source") {

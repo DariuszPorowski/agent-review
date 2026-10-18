@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,8 @@ import { buildCodePathRequests, mergeCodePathMaps, reviewAdapter, sourceAdapter,
 import { isTestPath } from "./web/languages.mjs";
 import { pythonCandidates } from "./python-runtime.mjs";
 import { runReview } from "./review-pipeline.mjs";
+import { reviewIdentity } from "./review-pipeline.mjs";
+import { answerDiscussion } from "./item-discussion.mjs";
 
 const execFileAsync = promisify(execFile);
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -294,6 +296,12 @@ export class ReviewState {
             ? join(this.workspacePath, "files", "agent-review-reviews") : null);
         this.reviewLimits = options.reviewLimits || {};
         this.reviewControllers = new Set();
+        this.generateDiscussion = options.generateDiscussion || null;
+        this.discussionThreads = new Map();
+        this.discussionLoads = new Map();
+        this.discussionRuns = new Map();
+        this.discussionSnapshots = new WeakMap();
+        this.discussionUpdate = null;
         this.reviewEvidence = null;
         this.reviewEvidenceModel = null;
         this.reviewEvidenceRevision = 0;
@@ -340,6 +348,7 @@ export class ReviewState {
             decision_map: this.decisionMap,
             test_run: this.testRun ? { ...this.testRun, stale: this.testRun.status === "complete" && this.testRunStale() } : null,
             rule_check: this.ruleCheck,
+            discussion_update: this.discussionUpdate,
         };
     }
 
@@ -636,6 +645,7 @@ export class ReviewState {
 
     async clearDisposedReview() {
         await this.cancel();
+        await Promise.all([...this.discussionRuns.values()]);
         const decisions = this.decisionPromise;
         this.decisionController?.abort();
         await decisions;
@@ -651,6 +661,9 @@ export class ReviewState {
         this.selection = null;
         this.sessionContext = null;
         this.customAnalyses = {};
+        this.discussionThreads.clear();
+        this.discussionLoads.clear();
+        this.discussionUpdate = null;
         this.customPromptError = null;
         this.packageRisks = {};
         this.reviewCache.clear();
@@ -931,6 +944,140 @@ export class ReviewState {
             controller.abort(new Error("Review cancelled or snapshot changed."));
             this.reviewControllers.delete(controller);
         }
+    }
+
+    discussionKey(id) {
+        if (!this.model || this.loading) throw new Error("Wait for the saved review to finish.");
+        this.contextFor(id);
+        if (!this.discussionSnapshots.has(this.model)) {
+            this.discussionSnapshots.set(this.model, reviewIdentity(this.model, "item-discussion-v1", null));
+        }
+        const snapshot = this.discussionSnapshots.get(this.model);
+        return { snapshot, key: createHash("sha256").update(`${snapshot}:${id}`).digest("hex") };
+    }
+
+    async discussionFor(id) {
+        if (typeof id !== "string" || !id) throw new Error("Select an item to discuss.");
+        const { snapshot, key } = this.discussionKey(id);
+        if (this.discussionThreads.has(key)) return this.discussionThreads.get(key);
+        if (this.discussionLoads.has(key)) return this.discussionLoads.get(key);
+        const pending = (async () => {
+            let thread = { id: key, snapshot, item_id: id, commit: this.model.metadata?.head_sha || null,
+                label: this.reviewTarget.label, revision: 0, messages: [] };
+            if (this.workspacePath) {
+                try {
+                    const saved = JSON.parse(await readFile(join(this.workspacePath, "files", "agent-review-discussions", `${key}.json`), "utf8"));
+                    if (saved.id !== key || saved.snapshot !== snapshot || saved.item_id !== id || !Array.isArray(saved.messages)) {
+                        throw new Error("Saved discussion does not match this review item and snapshot.");
+                    }
+                    if (saved.revision !== undefined && (!Number.isSafeInteger(saved.revision) || saved.revision < 0)) {
+                        throw new Error("Saved discussion has an invalid revision.");
+                    }
+                    if (saved.messages.some((message) => !["user", "assistant"].includes(message.role)
+                        || typeof message.id !== "string" || typeof message.content !== "string"
+                        || !["complete", "generating", "stopped", "error"].includes(message.status)
+                        || (message.citations && (!Array.isArray(message.citations) || message.citations.length > 20))
+                        || (message.activity && !Array.isArray(message.activity)))) {
+                        throw new Error("Saved discussion contains an invalid message.");
+                    }
+                    thread = saved;
+                    for (const message of thread.messages) if (message.status === "generating") {
+                        message.status = "error";
+                        message.error = "This answer was interrupted when its provider stopped. Ask again to continue.";
+                    }
+                } catch (error) {
+                    if (error.code !== "ENOENT") throw error;
+                }
+            }
+            this.discussionThreads.set(key, thread);
+            return thread;
+        })().finally(() => this.discussionLoads.delete(key));
+        this.discussionLoads.set(key, pending);
+        return pending;
+    }
+
+    async saveDiscussion(thread) {
+        if (!this.workspacePath) return;
+        const directory = join(this.workspacePath, "files", "agent-review-discussions");
+        await mkdir(directory, { recursive: true });
+        const path = join(directory, `${thread.id}.json`);
+        const temporary = `${path}.${randomUUID()}.tmp`;
+        try {
+            await writeFile(temporary, JSON.stringify(thread));
+            await rename(temporary, path);
+        } finally {
+            await rm(temporary, { force: true });
+        }
+    }
+
+    async askDiscussion({ id, question }) {
+        if (!this.model || this.loading) throw new Error("Wait for the saved review to finish.");
+        if (typeof id !== "string" || !id) throw new Error("Select an item to discuss.");
+        if (typeof question !== "string" || !question.trim() || question.length > 4000) {
+            throw new Error("Enter a question of 1–4000 characters.");
+        }
+        if (!this.generateDiscussion) throw new Error("Copilot discussion is unavailable in this provider.");
+        const model = this.model;
+        const context = this.contextFor(id);
+        context.test_evidence = decisionPromptContext(this.decisionMap,
+            callablesForSubject(this.decisionMap, model, context.subject),
+            { maxCallables: 8, maxEntries: 12, maxCharacters: 5000, run: this.promptTestRun() });
+        const thread = await this.discussionFor(id);
+        if (this.model !== model) throw new Error("The review changed before the discussion could start.");
+        if (this.discussionRuns.has(thread.id)) throw new Error("Wait for this answer or stop it before asking another question.");
+        if (thread.messages.length >= 200) throw new Error("This discussion has reached its 100-question limit.");
+        const reservation = Promise.resolve();
+        this.discussionRuns.set(thread.id, reservation);
+        const history = [...thread.messages];
+        const message = { id: randomUUID(), role: "assistant", content: "", status: "generating", activity: [], citations: [] };
+        thread.messages.push({ id: randomUUID(), role: "user", content: question.trim(), status: "complete" }, message);
+        try { await this.saveDiscussion(thread); }
+        catch (error) {
+            thread.messages.splice(history.length);
+            this.discussionRuns.delete(thread.id);
+            throw error;
+        }
+        const controller = new AbortController();
+        controller.reviewScope = `discussion:${thread.id}`;
+        this.reviewControllers.add(controller);
+        const publish = () => {
+            thread.revision = (thread.revision || 0) + 1;
+            this.discussionUpdate = thread;
+            this.broadcast("discussion");
+        };
+        const run = Promise.resolve().then(() => answerDiscussion({
+            model, context, question: question.trim(), history, signal: controller.signal,
+            generate: this.generateDiscussion,
+            readSource: async (path, side) => {
+                if (this.model !== model) throw new Error("The saved snapshot changed during discussion.");
+                if (!Object.hasOwn(model.source_files || {}, path)) return null;
+                const source = await this.sourceForPath(path);
+                return side === "base" ? source.base : source.current;
+            },
+            onActivity: (activity) => {
+                message.activity.push(activity);
+                publish();
+            },
+        })).then((answer) => {
+            Object.assign(message, answer, { status: "complete" });
+        }, (error) => {
+            message.status = controller.signal.aborted ? "stopped" : "error";
+            message.error = error.message;
+        }).then(async () => {
+            try { await this.saveDiscussion(thread); }
+            catch (error) {
+                message.status = "error";
+                message.error = `Unable to save discussion: ${error.message}`;
+                console.error("[agent-review discussion]", error);
+            }
+            publish();
+        }).finally(() => {
+            this.discussionRuns.delete(thread.id);
+            this.reviewControllers.delete(controller);
+        });
+        this.discussionRuns.set(thread.id, run);
+        publish();
+        return thread;
     }
 
     async internalReview(instruction, { sources = [], onProgress, force = false, scope = "rules" } = {}) {
@@ -1215,6 +1362,8 @@ export class ReviewState {
         const subject = node
             || (attention?.node_id ? this.model.nodes.find((candidate) => candidate.id === attention.node_id) : null)
             || (attention?.edge_id ? this.model.edges.find((candidate) => candidate.id === attention.edge_id) : null)
+            || (attention?.package_id ? this.model.package_changes?.find((candidate) => candidate.id === attention.package_id)
+                || this.model.package_dependencies?.find((candidate) => candidate.id === attention.package_id) : null)
             || packageChange
             || file;
         const evidenceIds = new Set(item.evidence_ids || []);

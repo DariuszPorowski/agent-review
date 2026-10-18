@@ -722,6 +722,23 @@ marker path { fill: var(--cp-border-strong); }
 .impact-toolbar select, .impact-toolbar button { max-width: 100%; margin: 6px 8px 0 0; }
 .impact-graph { min-height: 440px; }
 .impact-evidence { margin-top: 12px; overflow-wrap: anywhere; }
+.discussion-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.discussion-tabs button, .item-discussion button { min-height: 32px; padding: 5px 10px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); color: var(--cp-text); cursor: pointer; }
+.discussion-tabs [aria-pressed="true"] { border-color: var(--cp-link); color: var(--cp-link); }
+.discussion-mode > .source-provenance, .discussion-mode > .source-annotation,
+.discussion-mode > .source-decisions { display: none; }
+.item-discussion { min-width: 0; overflow-wrap: anywhere; }
+.item-discussion h3 { margin: 0 0 8px; font-size: 14px; }
+.discussion-messages { max-height: 50vh; overflow: auto; margin: 12px 0; }
+.discussion-message { padding: 10px 0; border-bottom: 1px solid var(--cp-border); }
+.discussion-message p { white-space: pre-wrap; margin: 6px 0; }
+.discussion-message .source-reference { display: inline-block; margin: 2px 8px 2px 0; }
+.item-discussion form { display: flex; flex-wrap: wrap; gap: 8px; }
+.item-discussion label, .item-discussion textarea { width: 100%; }
+.item-discussion textarea { resize: vertical; min-height: 80px; padding: 8px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); color: var(--cp-text); font: inherit; }
+.item-discussion button[type="submit"] { background: var(--cp-primary); color: #fff; border-color: var(--cp-primary); }
+.item-discussion button:disabled { opacity: .5; cursor: default; }
+.source-panel.no-source .tab, .source-panel.no-source #source-impact { display: none; }
 .workspace.impact-mode .legend, .workspace.impact-mode .graph-controls label,
 .workspace.impact-mode #review-search { display: none; }
 .graph-controls { flex-wrap: wrap; min-width: 0; }

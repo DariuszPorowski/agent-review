@@ -5,6 +5,7 @@ import { packageEvidenceLinks } from "/package-presentation.mjs";
 import { resolveSourceReference } from "/source-references.mjs";
 import { unchangedDiffContext, diffSegments } from "/diff-context.mjs";
 import { impactSlice } from "/impact-model.mjs";
+import { ItemDiscussionPane } from "/item-discussion-ui.mjs";
 import { isReviewSymbol, isTestPath, languageForPath } from "/languages.mjs";
 import { ConnectionFeedback } from "/connection-feedback.mjs";
 import { describeAnalysisWarning } from "/analysis-limitations.mjs";
@@ -50,6 +51,7 @@ const elements = Object.fromEntries([
     "review-target-form", "review-mode", "review-ref", "review-target-label", "repository-identity", "review-list-refresh", "review-more", "review-options-status", "review-picker-notice", "clean-review", "change-brief",
     "status", "refresh", "cancel-analysis", "analysis-cancelled", "source-context-notice", "connection-notice", "reconnect", "worktree-notice", "worktree-notice-text", "worktree-reanalyze", "error", "analysis-progress", "progress-phase", "progress-message", "progress-percent",
     "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize", "impact-view", "source-impact",
+    "show-evidence", "show-discussion", "item-discussion",
     "graph", "level-label", "graph-title", "zoom-out", "changed-only", "review-search", "detail-toggle", "detail", "detail-close", "source-panel", "source-title",
     "source-provenance", "source-decisions", "source-annotation", "source-risk", "source-close", "source", "source-ruler", "source-back", "source-forward",
     "session-history-panel", "session-history-title", "session-history-meta", "session-history-close", "session-transcript",
@@ -65,6 +67,54 @@ const connectionFeedback = new ConnectionFeedback({
         renderConnectionNotice();
     },
 });
+const discussionPane = new ItemDiscussionPane(elements.item_discussion, {
+    api, notify: showError, latest: () => state.payload?.discussion_update,
+    sourceLink: (citation) => sourceReferenceButton(
+        `${citation.path}:${citation.line}${citation.side === "base" ? " (base)" : ""}`,
+        { path: citation.path, lines: [citation.line], side: citation.side }),
+});
+
+function setDiscussionMode(active) {
+    state.discussionMode = active;
+    elements.source_panel.querySelector(".source-side").classList.toggle("discussion-mode", active);
+    elements.show_evidence.setAttribute("aria-pressed", String(!active));
+    elements.show_discussion.setAttribute("aria-pressed", String(active));
+    if (!active) {
+        discussionPane.hide();
+        elements.source_panel.querySelector(".source-side").scrollTop = 0;
+    }
+}
+
+async function discussItem(item = state.selected) {
+    if (!item?.id) {
+        showError(new Error("Select a review item or source range to discuss."));
+        return;
+    }
+    if (state.selected?.id !== item.id || !state.source) await selectItem(item, false, false);
+    if (state.selected?.id !== item.id) return;
+    const names = new Map((state.payload?.model?.nodes || []).map((node) => [node.id, node.name]));
+    const dependency = [...state.payload?.model?.package_changes || [], ...state.payload?.model?.package_dependencies || []]
+        .find((dependency) => dependency.id === (item.package_id || item.id));
+    const title = dependency ? `${dependency.name} · ${packageVersionText(dependency)} — ${item.title || "Dependency"}`
+        : item.title || item.name || (item.source
+        ? `${names.get(item.source) || item.source} ${item.type} ${names.get(item.target) || item.target}` : item.id);
+    elements.source_panel.classList.toggle("no-source", !state.source);
+    if (!state.source) {
+        elements.source_title.textContent = title;
+        elements.source.replaceChildren(el("p", "muted", "This item has no direct source range. Discussion uses its saved relationship evidence."));
+        elements.source_ruler.classList.add("hidden");
+        elements.source_context_notice.classList.add("hidden");
+        for (const panel of [elements.source_provenance, elements.source_annotation, elements.source_decisions, elements.source_risk]) {
+            panel.classList.add("hidden");
+        }
+        elements.source_panel.classList.remove("hidden");
+    }
+    setDiscussionMode(true);
+    await discussionPane.open({ ...item, title }, state.payload?.review_generation);
+}
+
+elements.show_evidence.addEventListener("click", () => setDiscussionMode(false));
+elements.show_discussion.addEventListener("click", () => discussItem().catch(showError));
 
 function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -377,6 +427,13 @@ function renderCards(container, items, emptyText) {
             impact.setAttribute("aria-label", `Show impact of ${item.title || item.name}`);
             impact.addEventListener("click", () => openImpact(item));
             if (!item.collect_mode) wrapper.append(impact);
+            if (!item.collect_mode) {
+                const ask = el("button", "link-button", "Ask");
+                ask.type = "button";
+                ask.setAttribute("aria-label", `Ask about ${item.title || item.name}`);
+                ask.addEventListener("click", () => discussItem(item).catch(showError));
+                wrapper.append(ask);
+            }
             container.append(wrapper);
         } else {
             container.append(card);
@@ -466,6 +523,7 @@ function markSelectedCards() {
 }
 
 function openImpact(item = state.selected) {
+    setDiscussionMode(false);
     const model = state.payload?.model;
     if (!model) return;
     const seed = item?.node_id || item?.package_id || item?.target
@@ -515,6 +573,7 @@ function renderImpact(model, focus = null) {
     const graph = el("div", "impact-graph");
     elements.graph.append(controls, graph);
     renderGraph(graph, slice.nodes, slice.edges, (item) => {
+        if (state.selected?.id !== item.id) setDiscussionMode(false);
         state.selected = item;
         renderDetail(item);
         setDetailVisible(true);
@@ -539,6 +598,10 @@ function renderImpact(model, focus = null) {
             });
             evidence.append(open);
         }
+        const ask = el("button", "", "Ask about this");
+        ask.type = "button";
+        ask.addEventListener("click", () => discussItem(item).catch(showError));
+        evidence.append(ask);
         if (item.impact_role === "Related test") evidence.append(el("p", "muted", "Static test relationship. Execution of this affected behavior is not established by this graph."));
         elements.detail.append(evidence);
     });
@@ -1248,6 +1311,7 @@ async function refreshAttribution() {
 }
 
 async function selectFile(change) {
+    setDiscussionMode(false);
     const epoch = ++state.selectionEpoch;
     state.selected = {
         id: `file:${change.path}`, kind: "file", name: change.path, path: change.path,
@@ -1269,7 +1333,8 @@ async function selectFile(change) {
     }
 }
 
-async function selectItem(item, notify = true) {
+async function selectItem(item, notify = true, annotate = true) {
+    if (state.selected?.id !== item.id) setDiscussionMode(false);
     const epoch = ++state.selectionEpoch;
     state.selected = item;
     markSelectedCards();
@@ -1288,9 +1353,12 @@ async function selectItem(item, notify = true) {
             elements.source_panel.classList.add("hidden");
             if (!String(error.message).includes("has no source location")) showError(error);
         }
+    } else {
+        state.source = null;
+        elements.source_panel.classList.add("hidden");
     }
     if (epoch !== state.selectionEpoch) return;
-    if (item.path || item.evidence_ids?.length || item.node_id || item.edge_id) {
+    if (annotate && (item.path || item.evidence_ids?.length || item.node_id || item.edge_id)) {
         ensureAnnotation(item, epoch);
     } else {
         renderAnnotation(item, state.payload?.annotations?.[item.id] || null);
@@ -2016,6 +2084,7 @@ async function cachedSourceRows(source, tab, isCurrent) {
 
 async function renderSource({ preserveScroll = false } = {}) {
     if (!state.source) return;
+    elements.source_panel.classList.remove("no-source");
     const source = state.source;
     const tab = state.sourceTab;
     const version = ++sourceRenderVersion;
@@ -3829,6 +3898,7 @@ elements.rail_resize.addEventListener("keydown", (event) => {
     setRailWidth(current + (event.key === "ArrowRight" ? 20 : -20));
 });
 elements.source_close.addEventListener("click", () => {
+    setDiscussionMode(false);
     const fileSelection = state.selected?.kind === "file";
     state.selectionEpoch += 1;
     state.source = null;
@@ -3877,6 +3947,7 @@ function updateReviewApply() {
 }
 
 function resetReviewNavigation() {
+    setDiscussionMode(false);
     sourceRowCache.clear();
     state.selectionEpoch += 1;
     state.customOpenKeys.clear();
@@ -4202,6 +4273,11 @@ function connectEvents() {
             && payload.model && !payload.loading) resetReviewNavigation();
         connectionFeedback.connected();
         state.payload = payload;
+        if (state.discussionMode && discussionPane.thread?.id === payload.discussion_update?.id) {
+            discussionPane.update(payload.discussion_update);
+        }
+        if (payload.type === "discussion") return;
+        if (payload.type === "connected" && state.discussionMode) discussionPane.refresh().catch(showError);
         if (payload.type === "selection") {
             applyServerSelection(payload);
             return;

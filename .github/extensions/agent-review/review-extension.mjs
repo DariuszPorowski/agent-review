@@ -18,6 +18,7 @@ import { ReviewLifecycle } from "./review-lifecycle.mjs";
 import { pruneStaleArtifacts } from "./storage-cleanup.mjs";
 import { buildReviewPrompt, reviewResponseSchema, validateReviewResponse } from "./review-pipeline.mjs";
 import { selectedModelFromEvents } from "./ai-response.mjs";
+import { discussionPrompt, discussionSchema, validateDiscussionResponse } from "./item-discussion.mjs";
 
 const instances = new Map();
 const pendingInstances = new Map();
@@ -88,6 +89,15 @@ function createReviewState(requestedPath, input) {
         workspacePath: session.workspacePath,
         reviewModelId: async () => selectedModelFromEvents(await session.getEvents()),
         createReviewRuntime: (modelId) => createExplanationRuntime(state.repoRoot, modelId),
+        generateDiscussion: async (context, { signal }) => generateIsolatedExplanation({
+            workingDirectory: state.repoRoot, prompt: discussionPrompt(context),
+            responseSchema: discussionSchema(context), sourceEvents: await session.getEvents(),
+            signal, attempts: 1,
+            validateResponse: (content) => {
+                validateDiscussionResponse(content, context);
+                return content;
+            },
+        }),
         generateReviewPass: async (context, { signal, runtimeClient, modelId }) => generateIsolatedExplanation({
             workingDirectory: state.repoRoot,
             prompt: buildReviewPrompt(context),
