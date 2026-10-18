@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { answerDiscussion, discussionContext, validateDiscussionResponse } from "../item-discussion.mjs";
+import { answerDiscussion, discussionContext, discussionPrompt, validateDiscussionResponse } from "../item-discussion.mjs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,21 @@ test("package attention questions retain the exact dependency identity and decla
     const input = discussionContext(state.model, context, [], "Why this dependency?");
     assert.equal(input.item.package, "example");
     assert.equal(input.item.current_version, "1.2.3");
+});
+test("sampled section context never describes unprovided excerpts as missing saved files", () => {
+    const paths = Array.from({ length: 90 }, (_, index) => `modules/route-${index}/adapter.js`);
+    const reviewed = { ...model, source_files: { ...model.source_files,
+        ...Object.fromEntries(paths.map((path) => [path, { current: "same analyzed function" }])) } };
+    const input = discussionContext(reviewed, { ...context, section: {
+        title: "Update adapters", ranges: paths.map((path) => ({ path, line: 1, end_line: 1, side: "current" })),
+    } }, [], "Does grouping prove identical policies?");
+    assert.equal(input.snapshot_availability.saved_files, 91);
+    assert.equal(input.snapshot_availability.section_files, 90);
+    assert.equal(input.snapshot_availability.section_files_present, 90);
+    assert.equal(input.snapshot_availability.section_filename_counts["adapter.js"], 90);
+    assert.ok(new Set(input.evidence.map((item) => item.path)).size < 90);
+    assert.equal(input.section.omitted_range_catalog_entries, 50);
+    assert.match(discussionPrompt(input), /not absent from the repository or snapshot/);
 });
 test("discussion retrieves unchanged saved code without executing it", async () => {
     let calls = 0;
