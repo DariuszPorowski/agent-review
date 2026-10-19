@@ -50,6 +50,12 @@ The large sample's two failing tests are intentional; its guide identifies them.
 
 ### Understand the change
 
+A compact Overview keeps **Start review** or **Continue review**, focused-queue
+progress, and access to every changed file in the first screen. Priority items
+are a starting point, not a claim that all changed code has been reviewed.
+**Change summary, intent and advanced checks** opens the full narrative,
+metadata, metrics, provenance and custom-check controls when needed.
+
 A change brief shows file mix, source/test churn, coverage availability, and the
 originating request. Copilot uses bounded, saved implementation and test excerpts
 to explain behavior changes, suggest a review order, and distinguish demonstrated

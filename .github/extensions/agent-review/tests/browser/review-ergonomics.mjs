@@ -1,3 +1,4 @@
+import { openChangeDetails } from "./review-details-helper.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
@@ -55,15 +56,20 @@ try {
         const errors = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(`${server.url}?scoutTheme=${theme}`);
+        await openChangeDetails(page);
         if (theme === "light") {
             const pending = page.locator("#change-brief .ai-pending");
             await pending.waitFor();
             assert.match(await pending.textContent(), /Copilot is summarizing the whole change/);
             assert.equal(await pending.locator(".ai-pending-line").count(), 4, "the placeholder previews the result's shape");
             releaseOverview();
+            await openChangeDetails(page);
+
             await page.locator("#change-brief .brief-ai.ai-reveal").waitFor();
             assert.equal(await page.locator("#change-brief .ai-pending").count(), 0);
         } else {
+            await openChangeDetails(page);
+
             await page.locator("#change-brief .brief-ai").waitFor();
             assert.equal(await page.locator("#change-brief .brief-ai.ai-reveal").count(), 0, "results already present do not re-animate");
         }

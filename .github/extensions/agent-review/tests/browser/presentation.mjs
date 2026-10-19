@@ -1,3 +1,4 @@
+import { openChangeDetails } from "./review-details-helper.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
@@ -77,6 +78,8 @@ try {
             await route.continue();
         });
         await page.goto(`${server.url}?scoutTheme=${theme}`);
+        await openChangeDetails(page);
+
         await page.locator("#change-brief .brief-ai").waitFor();
         assert.equal(await page.locator("#change-brief .review-heading").textContent(), "Uncommitted changes");
         await page.locator(".review-plan-row").first().waitFor();
@@ -257,6 +260,8 @@ try {
         assert.equal(after.height, header.height, "header height is stable on PR failure");
         await page.selectOption("#review-mode", "worktree");
         await page.waitForFunction(() => document.querySelector("#status").textContent === "Saved review");
+        await openChangeDetails(page);
+
         await page.locator("#change-brief .brief-ai").waitFor();
         assert.equal(summaries, generated, "switching reuses the previous AI summary");
         assert.equal(await page.locator("#graph-title").textContent(), "Risk-first walkthrough");
@@ -275,6 +280,8 @@ try {
     }
     const cachePage = await browser.newPage();
     await cachePage.goto(server.url);
+    await openChangeDetails(cachePage);
+
     await cachePage.locator("#change-brief .brief-ai").waitFor();
     let releaseSelection, selectionStarted;
     const selectionGate = new Promise((resolve) => { releaseSelection = resolve; });
@@ -298,6 +305,8 @@ try {
     releaseSelection();
     await cachePage.waitForFunction(() => !document.querySelector("#review-ref").disabled);
     assert.equal(await cachePage.locator("#review-options-status").textContent(), "", "successful commit loading has no total-count label");
+    await openChangeDetails(cachePage);
+
     await cachePage.locator("#change-brief .brief-ai").waitFor();
     assert.equal(state.reviewTarget.mode, "commit");
     assert.match(await cachePage.locator(".quality-warning").textContent(), /historical snapshot.*not applied to commit or PR/);
@@ -320,10 +329,10 @@ try {
     const originalAttention = state.model.attention;
     const areas = state.model.nodes.filter((node) => ["module", "class", "method", "function"].includes(node.kind)).slice(0, 5);
     assert.equal(areas.length, 5);
-    state.model.attention = areas.map((node, index) => ({
+    state.model = { ...state.model, attention: areas.map((node, index) => ({
         id: `test:area:${index}`, node_id: node.id, title: "Large implementation change",
         reason: "Inspect this changed area.", impact_score: 50 - index, evidence_ids: [],
-    }));
+    })) };
     state.broadcast();
     await cachePage.locator('#attention .review-card[data-item-id="group:size"]').click();
     assert.equal(await cachePage.locator("#graph-title").textContent(), "Large changes · 5 areas");
@@ -337,7 +346,7 @@ try {
     await rows.first().click();
     await cachePage.locator("#source-panel").waitFor();
     assert.ok((await cachePage.locator("#source-title").textContent()).startsWith(areas[0].path));
-    state.model.attention = originalAttention;
+    state.model = { ...state.model, attention: originalAttention };
     state.broadcast();
     await cachePage.close();
     console.log("PASS saved commit autoload and all five grouped areas individually visible with source navigation");
@@ -381,6 +390,8 @@ try {
     assert.equal(customRuns, 0);
     await writeFile(join(repo, "health.py"), "class HealthCheck:\n    name: str\n    severity: str\n    passed: bool\n    message: str\n    details: dict\n    restored: bool\n");
     await cleanState.refresh();
+    await openChangeDetails(cleanPage);
+
     await cleanPage.locator("#change-brief .brief-ai").waitFor();
     assert.equal(await cleanPage.locator("#clean-review").isVisible(), false);
     assert.equal(await cleanPage.locator(".workspace").isVisible(), true);

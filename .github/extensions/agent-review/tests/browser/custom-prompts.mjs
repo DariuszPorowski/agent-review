@@ -1,3 +1,4 @@
+import { openChangeDetails } from "./review-details-helper.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
@@ -52,6 +53,8 @@ try {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(server.url);
+    await openChangeDetails(page);
+
     await page.locator("#change-brief .brief-ai").waitFor();
     await page.locator("#custom-results").getByText("Approval required", { exact: true }).waitFor();
     assert.equal(calls, 0, "repository-discovered instructions never execute without approval");
@@ -90,6 +93,7 @@ try {
     await page.selectOption("#review-mode", "worktree");
     await page.waitForFunction(() => document.querySelector("#status").textContent === "Saved review");
     assert.equal(calls, beforeRestore, "returning to a saved review reuses custom results");
+    await openChangeDetails(page);
     await page.click("#custom-manage");
     const globalRow = page.locator(".prompt-record").filter({ hasText: "Global compatibility" });
     await globalRow.getByRole("button", { name: "Edit", exact: true }).click();

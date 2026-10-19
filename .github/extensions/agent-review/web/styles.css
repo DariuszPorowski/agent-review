@@ -1690,6 +1690,26 @@ h3 { font-size: 14px; font-weight: 600; }
 .scope-finding span { font-size: 12px; color: var(--cp-text-muted); overflow-wrap: anywhere; }
 .scope-finding:hover strong { text-decoration: underline; }
 .change-brief { margin: 0 0 16px; padding: 16px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); }
+.review-overview { margin-bottom: 12px; padding: 16px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); }
+.review-overview-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.review-overview h2 { margin: 2px 0 8px; font-size: 18px; overflow-wrap: anywhere; }
+.review-overview-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.review-overview-actions button { min-height: 32px; padding: 5px 12px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface-soft); color: var(--cp-text); cursor: pointer; }
+#overview-start { background: var(--cp-primary); border-color: var(--cp-primary); color: #fff; font-weight: 600; }
+.review-overview-actions button:disabled { opacity: .5; cursor: default; }
+#overview-description { max-width: 90ch; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.overview-copy-label { margin: 6px 0 4px; font-size: 12px; }
+.overview-progress { margin: 12px 0 4px; font-weight: 600; font-size: 13px; }
+#overview-scope { margin: 0; font-size: 12px; }
+.review-background { margin-bottom: 12px; border: 1px solid var(--cp-border); border-radius: 6px; background: var(--cp-surface); }
+.review-background > summary { padding: 10px 12px; cursor: pointer; font-size: 13px; color: var(--cp-text-muted); }
+.review-background[open] > summary { border-bottom: 1px solid var(--cp-border); }
+.review-background .change-brief { border: 0; margin: 0; }
+.review-background .custom-analyses { margin: 0 12px 12px; }
+@media (max-width: 850px) {
+  .review-overview-top { flex-direction: column; gap: 4px; }
+  .review-overview-actions { flex-shrink: 1; }
+}
 .change-brief .detail-top { margin-bottom: 8px; }
 .change-brief .detail-top h2 { font-size: 16px; }
 .change-brief .detail-grid { display: grid; grid-template-columns: 1.4fr 1fr 1.5fr .8fr; gap: 0 24px; }
@@ -1718,22 +1738,27 @@ h3 { font-size: 14px; font-weight: 600; }
 .closed-label { display: inline-block; border: 1px solid var(--cp-border); border-radius: 12px; padding: 0 6px; font-size: 11px; color: var(--cp-text-muted); background: var(--cp-surface-soft); }
 .review-target-label { color: var(--cp-text-muted); font-size: 12px; margin-bottom: 12px; overflow-wrap: anywhere; }
 .repository-identity { color: var(--cp-text-muted); font-size: 12px; margin: -8px 0 12px; overflow-wrap: anywhere; }
-.topbar { display: grid; grid-template-columns: minmax(160px, 1fr) 150px 130px; gap: 8px 16px; align-items: center; }
+.topbar { display: grid; grid-template-columns: minmax(160px, 1fr) 150px auto auto; gap: 8px 16px; align-items: center; }
 html { scrollbar-gutter: stable; }
 .topbar > div:first-child { min-width: 0; white-space: nowrap; }
 .top-actions { display: contents; }
 .top-actions > .status { grid-column: 2; grid-row: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.top-actions > #refresh { grid-column: 3; grid-row: 1; width: 100%; }
+.top-actions > #review-command-open { grid-column: 3; grid-row: 1; }
+.top-actions > #refresh { grid-column: 4; grid-row: 1; width: 100%; }
 @media (max-width: 600px) {
   .topbar { grid-template-columns: minmax(0, 1fr) 130px; }
-  .topbar > div:first-child { grid-column: 1 / -1; }
+  .topbar > div:first-child { grid-column: 1; }
   .top-actions > .status { grid-column: 1; grid-row: 2; }
   .top-actions > #refresh { grid-column: 2; grid-row: 2; }
+  .top-actions > #review-command-open { grid-column: 1; grid-row: 3; }
+  .top-actions > .status { grid-column: 2; grid-row: 1; }
   .review-target-form { grid-row: 3; grid-template-columns: 100px minmax(0, 1fr); }
   .review-target-form #review-ref { grid-column: 1 / -1; }
   .review-target-form #review-list-refresh { grid-column: 1; }
   .review-target-form #review-more { grid-column: 2; }
 }
+.review-target-form #review-more.hidden, .review-target-form #review-list-refresh.hidden, .review-target-form #review-ref.hidden { display: none !important; }
+@media (max-width: 600px) { .review-target-form { grid-row: 4; } }
 .brief-ai-section { padding: 12px; border: 1px solid var(--cp-border); border-radius: var(--pr-radius); background: var(--cp-surface); }
 .brief-ai-section:first-child h2 { color: var(--cp-link); }
 .brief-ai-section:nth-child(2) h2 { color: var(--cp-text); }

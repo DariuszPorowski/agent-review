@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openChangeDetails } from "./review-details-helper.mjs";
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -131,6 +132,7 @@ try {
         await page.goto(`${server.url}?scoutTheme=${theme}`);
         const metric = page.locator("#summary .metric").filter({ hasText: "Code paths" });
         await metric.waitFor();
+        await openChangeDetails(page);
         const commit = page.locator("#change-brief .brief-commit");
         assert.equal(await page.locator("#change-brief .review-heading").textContent(), "Add reports fallback");
         assert.equal(await page.locator("#change-brief .detail-top > .commit-preview").textContent(), "Strict fallback with title and year validation.");

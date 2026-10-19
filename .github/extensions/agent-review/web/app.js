@@ -7,7 +7,7 @@ import { unchangedDiffContext, diffSegments } from "/diff-context.mjs";
 import { impactSlice } from "/impact-model.mjs";
 import { ItemDiscussionPane } from "/item-discussion-ui.mjs";
 import { parseReviewLocation, reviewLocation } from "/review-location.mjs";
-import { annotationSections, conciseReviewText, reviewCommands, reviewItemEvidence, reviewSignal } from "/review-presentation.mjs";
+import { annotationSections, conciseReviewText, overviewBlurb, reviewCommands, reviewItemEvidence, reviewSignal } from "/review-presentation.mjs";
 import { isReviewSymbol, isTestPath, languageForPath } from "/languages.mjs";
 import { ConnectionFeedback } from "/connection-feedback.mjs";
 import { describeAnalysisWarning } from "/analysis-limitations.mjs";
@@ -51,6 +51,7 @@ const state = {
 };
 const elements = Object.fromEntries([
     "review-target-form", "review-mode", "review-ref", "review-target-label", "repository-identity", "review-list-refresh", "review-more", "review-options-status", "review-picker-notice", "clean-review", "change-brief",
+    "review-overview", "review-background", "overview-title", "overview-description", "overview-progress", "overview-scope", "overview-start", "overview-files",
     "status", "refresh", "cancel-analysis", "analysis-cancelled", "source-context-notice", "connection-notice", "reconnect", "worktree-notice", "worktree-notice-text", "worktree-reanalyze", "error", "analysis-progress", "progress-phase", "progress-message", "progress-percent",
     "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize", "impact-view", "source-impact",
     "show-evidence", "show-discussion", "item-discussion", "sections-view", "source-section",
@@ -68,6 +69,7 @@ const connectionFeedback = new ConnectionFeedback({
     onChange: (phase) => {
         state.connectionLost = phase !== "connected";
         renderConnectionNotice();
+        renderReviewOverview();
     },
 });
 const discussionPane = new ItemDiscussionPane(elements.item_discussion, {
@@ -1311,7 +1313,75 @@ function field(label, value) {
     return row;
 }
 
+function overviewPlan() {
+    const model = state.payload?.model;
+    return model ? buildReviewPlan(model, state.payload.decision_map, state.payload.test_run,
+        [...groupFindings(model.attention || []), ...(state.payload.generated_observations || [])]) : [];
+}
+
+function renderReviewOverview() {
+    const payload = state.payload;
+    const model = payload?.model;
+    const hidden = !model || state.reviewPickerPending || state.reviewSubmitting || isEmptyReview(payload);
+    elements.review_overview.classList.toggle("hidden", Boolean(hidden));
+    if (hidden) return;
+    const target = payload.review_target;
+    const plan = overviewPlan();
+    const progress = reviewProgress(plan, state.reviewLedger);
+    const next = nextReviewItem(plan, state.reviewLedger);
+    const changed = (model.changes || []).filter((change) => change.status !== "unchanged").length;
+    elements.overview_title.textContent = target?.intent?.subject || target?.intent?.title
+        || (target?.mode === "worktree" ? "Review your uncommitted changes" : target?.label || "Review this change");
+    const blurb = overviewBlurb(payload.annotations?.overview?.body);
+    elements.overview_description.replaceChildren();
+    if (blurb) {
+        elements.overview_description.append(el("p", "overview-copy-label muted", "AI change overview · verify against source"));
+        markdownContext.intent = state.briefIntent || null;
+        markdownContext.subject = null;
+        renderMarkdown(elements.overview_description, blurb);
+    } else {
+        elements.overview_description.append(el("p", "", state.overviewLoading
+            ? "The AI overview is being prepared. You can start with the saved code now."
+            : state.overviewError ? "The AI overview is unavailable. You can review the saved code now, or open change details to retry."
+                : "Review the saved changes and available evidence. Open change details for intent, metrics and AI summary status."));
+    }
+    elements.overview_progress.textContent = `${countLabel(changed, "changed file")} · ${
+        progress.total ? `${progress.completed} of ${countLabel(progress.total, "priority item")} reviewed`
+            + (progress.followUp ? ` · ${countLabel(progress.followUp, "follow-up")}` : "")
+            : "No changes crossed the priority thresholds"}`;
+    elements.overview_scope.textContent = plan.omitted
+        ? `The focused queue shows ${plan.length} of ${plan.qualifying} qualifying priorities. All changed files remain available.`
+        : "Priority items are a focused starting point, not complete review coverage. All changed files remain available.";
+    elements.overview_start.textContent = next
+        ? [...state.reviewLedger.values()].some((entry) => entry.disposition !== "pending") ? "Continue review" : "Start review"
+        : plan.length ? "Browse all files" : "Start review";
+    elements.overview_start.title = next ? `Next: ${next.title}${next.path ? ` · ${next.path}` : ""}` : "Inspect all changed files";
+    const disabled = Boolean(payload.loading || payload.cancelled || state.connectionLost);
+    elements.overview_start.disabled = disabled;
+    elements.overview_files.disabled = disabled;
+    elements.overview_files.textContent = `Browse all ${countLabel(changed, "file")}`;
+}
+
+function browseReviewFiles() {
+    state.mode = "files";
+    state.stack = [];
+    state.query = "";
+    elements.review_search.value = "";
+    render();
+    elements.graph.scrollIntoView({ block: "start" });
+    elements.graph.tabIndex = -1;
+    elements.graph.focus({ preventScroll: true });
+}
+
+elements.overview_start.addEventListener("click", () => {
+    const next = nextReviewItem(overviewPlan(), state.reviewLedger);
+    if (next) openReviewPlanItem(next);
+    else browseReviewFiles();
+});
+elements.overview_files.addEventListener("click", browseReviewFiles);
+
 function renderChangeBrief() {
+    renderReviewOverview();
     const panel = elements.change_brief;
     panel.replaceChildren();
     const model = state.payload?.model;
@@ -2045,26 +2115,31 @@ function sourceReferenceButton(label, reference, title = null) {
     button.title = title || (reference.lines.length
         ? `Open ${reference.path} at line ${reference.lines.join(", ")}`
         : `Open ${reference.path}`);
-    button.addEventListener("click", async () => {
-        rememberSourceReturnFocus();
-        const epoch = ++state.selectionEpoch;
-        const query = new URLSearchParams({ path: reference.path });
-        if (reference.lines[0]) query.set("line", String(reference.lines[0]));
-        if (reference.side) query.set("side", reference.side);
-        const packageName = reference.packageName || (state.selected?.id?.startsWith("package:")
-            && [...(state.selected.declared_current || []), ...(state.selected.declared_base || [])].some((item) => item.source === reference.path)
-            ? state.selected.name : null);
-        if (packageName) {
-            query.set("package", packageName);
-            if (state.selected?.ecosystem) query.set("ecosystem", state.selected.ecosystem);
-        }
-        try {
-            await loadSource(query.toString(), epoch, reference.side || "current", "push");
-        } catch (error) {
-            if (epoch === state.selectionEpoch) showError(error);
-        }
-    });
+    button.addEventListener("click", () => openSourceReference(reference).catch(showError));
     return button;
+}
+
+async function openSourceReference(reference, { focus = false, tab = reference.side || "current", nav = "push" } = {}) {
+    rememberSourceReturnFocus();
+    const epoch = ++state.selectionEpoch;
+    const query = new URLSearchParams({ path: reference.path });
+    if (reference.lines[0]) query.set("line", String(reference.lines[0]));
+    if (reference.side) query.set("side", reference.side);
+    const packageName = reference.packageName || (state.selected?.id?.startsWith("package:")
+        && [...(state.selected.declared_current || []), ...(state.selected.declared_base || [])].some((item) => item.source === reference.path)
+        ? state.selected.name : null);
+    if (packageName) {
+        query.set("package", packageName);
+        if (state.selected?.ecosystem) query.set("ecosystem", state.selected.ecosystem);
+    }
+    try {
+        const loaded = await loadSource(query.toString(), epoch, tab, nav);
+        if (loaded && focus) elements.source.focus({ preventScroll: true });
+        return loaded;
+    } catch (error) {
+        if (epoch === state.selectionEpoch) throw error;
+        return false;
+    }
 }
 
 function appendTextWithSourceReferences(container, text) {
@@ -2822,7 +2897,18 @@ function collectionTitle(mode) {
 
 function openReviewPlanItem(item) {
     if (item.kind === "package") {
-        openPackage(item.package);
+        const declaration = (item.package.declared_current?.length ? item.package.declared_current : item.package.declared_base || [])[0];
+        if (!declaration?.source) {
+            showError(new Error("This priority has no saved package declaration to review. Browse all changed files instead."));
+            return;
+        }
+        rememberSourceReturnFocus();
+        state.selected = { ...item.package, kind: "package" };
+        setDiscussionMode(false);
+        renderDetail(state.selected);
+        openSourceReference({ path: declaration.source, lines: declaration.line ? [declaration.line] : [],
+            side: item.package.change === "removed" ? "base" : "current", packageName: item.package.name },
+        { focus: true, tab: "diff", nav: "reset" }).catch(showError);
         return;
     }
     if (item.kind === "callable" && item.preferred) {
@@ -4167,7 +4253,7 @@ function render() {
             ? "Reanalyze to check the latest worktree. This saved snapshot does not include later edits."
             : state.connectionLost ? "This is the last saved result; it cannot confirm the current worktree while disconnected."
                 : "The selected snapshot has no reviewable changes against its baseline.";
-        for (const element of [elements.change_brief, elements.custom_analyses, elements.summary,
+        for (const element of [elements.review_overview, elements.review_background, elements.change_brief, elements.custom_analyses, elements.summary,
             elements.breadcrumbs, document.querySelector(".workspace"), elements.source_panel, elements.session_history_panel]) {
             element.classList.add("hidden");
         }
@@ -4550,6 +4636,7 @@ function updateReviewApply() {
 }
 
 function resetReviewNavigation() {
+    elements.review_background.open = false;
     setSourceFocus(false);
     state.appliedReviewLocation = null;
     setDiscussionMode(false);
@@ -4597,7 +4684,7 @@ function resetReviewNavigation() {
 function renderReviewPickerNotice() {
     const pending = Boolean(state.reviewPickerPending || state.reviewSubmitting
         || (state.payload?.loading && !state.payload.model));
-    for (const element of [elements.change_brief, elements.summary, elements.breadcrumbs, document.querySelector(".workspace")]) {
+    for (const element of [elements.review_overview, elements.review_background, elements.change_brief, elements.summary, elements.breadcrumbs, document.querySelector(".workspace")]) {
         element.classList.toggle("hidden", pending);
     }
     const loading = state.reviewSubmitting || state.reviewOptionsLoading || state.payload?.loading;

@@ -1,3 +1,4 @@
+import { openChangeDetails } from "./review-details-helper.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
@@ -63,6 +64,8 @@ try {
             const errors = [];
             page.on("pageerror", (error) => errors.push(error.message));
             await page.goto(`${server.url}?scoutTheme=${theme}`);
+            await openChangeDetails(page);
+
             await page.locator("#change-brief .brief-ai").waitFor();
             await page.locator("#zoom-out").click();
             const symbol = state.model.nodes.find((node) => node.name === "first_target");

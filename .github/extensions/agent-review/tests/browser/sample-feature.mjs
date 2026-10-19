@@ -1,3 +1,4 @@
+import { openChangeDetails } from "./review-details-helper.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
@@ -55,6 +56,8 @@ try {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(server.url);
+    await openChangeDetails(page);
+
     await page.locator("#change-brief .brief-ai").waitFor();
     for (const item of packages) {
         await page.locator("#packages .review-card").filter({ hasText: new RegExp(item.name, "i") }).click();

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { annotationSections, conciseReviewText, reviewCommands, reviewItemEvidence, reviewSignal } from "../web/review-presentation.mjs";
+import { annotationSections, conciseReviewText, overviewBlurb, reviewCommands, reviewItemEvidence, reviewSignal } from "../web/review-presentation.mjs";
 
 test("static priority signals and AI-supported concerns are not labeled confirmed defects", () => {
     assert.equal(reviewSignal({ id: "attention:size" }).label, "Review priority");
@@ -11,6 +11,11 @@ test("concise card text is explicitly truncated rather than silently rewritten",
     assert.equal(conciseReviewText("Short"), "Short");
     assert.ok(conciseReviewText("word ".repeat(100)).endsWith("…"));
     assert.ok(conciseReviewText("word ".repeat(100)).length <= 241);
+});
+test("the overview foregrounds a bounded behavioral summary without hiding the full explanation", () => {
+    assert.equal(overviewBlurb("## Summary\n- Requested: No session intent was supplied; inspect the commit.\n- Policies now use seconds.\n## Gaps\n- Tests unknown."), "Policies now use seconds.");
+    assert.equal(overviewBlurb(""), "");
+    assert.ok(overviewBlurb(`## Summary\n- ${"word ".repeat(200)}`).length <= 361);
 });
 test("progressive explanations retain preambles and do not mistake fenced code for section headings", () => {
     const parsed = annotationSections("Context.\n## What changed\n- A change.\n```md\n## Not a real heading\n```\n## Verify\n- Check it.");

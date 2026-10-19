@@ -1,3 +1,4 @@
+import { openChangeDetails } from "./review-details-helper.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdir } from "node:fs/promises";
@@ -57,6 +58,8 @@ try {
                 "Theme tokens must not disturb responsive layout");
             if (process.env.AGENT_REVIEW_SCREENSHOT_DIR) {
                 await mkdir(process.env.AGENT_REVIEW_SCREENSHOT_DIR, { recursive: true });
+                await openChangeDetails(page);
+
                 await page.locator(".brief-ai").waitFor();
                 await page.waitForFunction(() => [...document.querySelectorAll(".brief-ai")]
                     .every((node) => Number(getComputedStyle(node).opacity) === 1));

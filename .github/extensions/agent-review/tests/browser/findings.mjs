@@ -1,3 +1,4 @@
+import { openChangeDetails } from "./review-details-helper.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
@@ -38,10 +39,13 @@ try {
         const errors = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(`${server.url}?scoutTheme=${theme}`);
+        await openChangeDetails(page);
+
         await page.locator("#change-brief .brief-ai").waitFor();
         assert.equal(await page.getByText("Highest-impact areas", { exact: true }).count(), 0);
         assert.ok(await page.evaluate(() => document.querySelector("#change-brief").getBoundingClientRect().top
             < document.querySelector("#summary").getBoundingClientRect().top));
+        await page.locator("#zoom-out").click();
         await page.locator(`.node[aria-label^="${component.name},"]`).click();
         const tile = page.locator(`.node[aria-label^="${module.name},"]`);
         assert.equal(await tile.locator(".attention-count").textContent(), "2");
@@ -67,6 +71,8 @@ try {
         assert.equal(await page.locator("#source-panel").isVisible(), false, "closing a finding must not open source");
         const generated = summaries;
         await page.reload();
+        await openChangeDetails(page);
+
         await page.locator("#change-brief .brief-ai").waitFor();
         assert.equal(await page.locator("#attention .queue-item.is-closed").last().getAttribute("data-item-id"), id);
         assert.equal(summaries, generated, "reload uses cached summary");
@@ -74,6 +80,8 @@ try {
         assert.equal(await page.locator("#attention .queue-item.is-closed").count(), 0);
         await page.click("#refresh");
         await page.waitForFunction(() => document.querySelector("#status").textContent === "Analysis current");
+        await openChangeDetails(page);
+
         await page.locator("#change-brief .brief-ai").waitFor();
         assert.equal(summaries, generated + 1, "refresh automatically regenerates summary");
         assert.deepEqual(errors, []);

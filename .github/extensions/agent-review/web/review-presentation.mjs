@@ -48,6 +48,14 @@ export function annotationSections(markdown) {
     return { preamble: preamble.join("\n"), sections: sections.map(({ title, lines }) => ({ title, text: lines.join("\n") })) };
 }
 
+export function overviewBlurb(markdown) {
+    const section = annotationSections(markdown).sections.find((section) => /^summary$/i.test(section.title));
+    if (!section) return "";
+    const lines = section.text.split(/\r?\n/).slice(1).map((line) => line.replace(/^[-*]\s+/, "").trim())
+        .filter((line) => line && !/no (?:session |originating )?intent (?:was )?supplied/i.test(line));
+    return conciseReviewText(lines.slice(0, 2).join(" "), 360);
+}
+
 export function reviewCommands(model) {
     const items = [];
     const nodes = new Map((model.nodes || []).map((node) => [node.id, node]));

@@ -70,6 +70,20 @@
             <h2>No changes to review</h2>
             <p>The selected snapshot has no reviewable changes against its baseline.</p>
         </section>
+        <section id="review-overview" class="review-overview hidden" aria-label="Review overview">
+            <div class="review-overview-top">
+                <div><p class="eyebrow">REVIEW OVERVIEW</p><h2 id="overview-title">Review this change</h2></div>
+                <div class="review-overview-actions">
+                    <button id="overview-start" type="button" disabled>Start review</button>
+                    <button id="overview-files" type="button" disabled>Browse all files</button>
+                </div>
+            </div>
+            <div id="overview-description"></div>
+            <p id="overview-progress" class="overview-progress"></p>
+            <p id="overview-scope" class="muted"></p>
+        </section>
+        <details id="review-background" class="review-background hidden">
+            <summary>Change summary, intent and advanced checks</summary>
         <section id="change-brief" class="change-brief" aria-label="Change brief"></section>
         <section id="custom-analyses" class="custom-analyses hidden" aria-label="Custom analyses">
             <div class="custom-heading">
@@ -78,6 +92,7 @@
             </div>
             <div id="custom-results"></div>
         </section>
+        </details>
         <section id="summary" class="summary" aria-label="Change summary"></section>
         <nav id="breadcrumbs" class="breadcrumbs" aria-label="Review level"></nav>
         <section class="workspace detail-collapsed">

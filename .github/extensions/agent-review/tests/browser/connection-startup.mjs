@@ -1,3 +1,4 @@
+import { openChangeDetails } from "./review-details-helper.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
@@ -50,6 +51,8 @@ try {
         } catch (error) {
             throw new Error(`Startup did not recover: status=${await page.locator("#status").textContent()}; page errors=${errors.join(" | ")}; attempts=${JSON.stringify(attempts)}`, { cause: error });
         }
+        await openChangeDetails(page);
+
         await page.locator("#change-brief .brief-ai").waitFor();
         assert.equal(await page.evaluate(() => window.connectionWarningFlashed), false,
             `${theme}: a brief startup failure must recover without flashing the outage warning`);

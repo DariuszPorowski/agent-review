@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+
+const url = process.env.AGENT_REVIEW_UX_URL;
+if (!url) throw new Error("Set AGENT_REVIEW_UX_URL to an actual repository review.");
+const { chromium } = createRequire(process.env.AGENT_REVIEW_BROWSER_PACKAGE || import.meta.url)("playwright-core");
+const browser = await chromium.launch({ headless: true, executablePath: process.env.AGENT_REVIEW_BROWSER_EXECUTABLE || [
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+].find(existsSync) });
+try {
+    for (const theme of ["light", "dark"]) {
+        for (const width of [1280, 900, 390]) {
+            const height = width === 390 ? 844 : 800;
+            const page = await browser.newPage({ viewport: { width, height } });
+            const errors = [];
+            page.on("pageerror", (error) => errors.push(error.message));
+            await page.goto(`${url}?scoutTheme=${theme}`);
+            const start = page.locator("#overview-start");
+            await start.waitFor();
+            const bounds = await start.boundingBox();
+            assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= height,
+                `Primary review action must be above the fold at ${width}px: ${JSON.stringify(bounds)}`);
+            assert.equal(await page.locator("#review-background").evaluate((details) => details.open), false);
+            assert.match(await page.locator("#overview-progress").textContent(), /changed files?/);
+            assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+            if (process.env.AGENT_REVIEW_SCREENSHOT_DIR) {
+                await mkdir(process.env.AGENT_REVIEW_SCREENSHOT_DIR, { recursive: true });
+                await page.screenshot({ path: join(process.env.AGENT_REVIEW_SCREENSHOT_DIR, `overview-${theme}-${width}.png`) });
+            }
+            await start.focus();
+            await start.press("Enter");
+            await page.locator("#source-panel").waitFor();
+            await page.waitForFunction(() => document.querySelector("#source")?.getAttribute("aria-busy") !== "true"
+                && document.querySelector("#source")?.querySelector(".code-row"));
+            await page.locator("#source-close").click();
+            assert.equal(await start.evaluate((button) => button === document.activeElement), true,
+                "Closing source returns to the durable Start/Continue action");
+            await page.locator("#review-background > summary").click();
+            assert.equal(await page.locator("#change-brief").isVisible(), true);
+            await page.locator("#review-background > summary").click();
+            await page.locator("#overview-files").click();
+            await page.locator(".collection-row").first().waitFor();
+            assert.deepEqual(errors, []);
+            console.log(`PASS ${theme} ${width}: visible next action, compact defaults, keyboard source/return, full details and all-file access`);
+            await page.close();
+        }
+    }
+} finally { await browser.close(); }
