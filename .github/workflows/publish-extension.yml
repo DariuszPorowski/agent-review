@@ -23,7 +23,9 @@ permissions:
 
 concurrency:
   group: extension-distribution-${{ github.ref }}
-  cancel-in-progress: false
+  # Cancel superseded runs. GITHUB_TOKEN can't create a release for an older
+  # commit whose .github/workflows differ from the default branch (HTTP 403).
+  cancel-in-progress: true
 
 jobs:
   cli-discovery:
@@ -102,6 +104,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -133,12 +137,14 @@ jobs:
           fi
           node scripts/build-release-distribution.mjs --bootstrap-from \
             "$RELEASE_ROOT/release-manifest.json" "$DIST_ROOT"
-          auth_key="http.${SERVER_URL}/.extraheader"
-          auth="$(git config --local --get "$auth_key")"
+          # Authenticate with the job token directly; actions/checkout's persisted
+          # credential storage is version-specific and not a stable interface.
+          basic_auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${basic_auth}"
           cd "$DIST_ROOT"
           git init --initial-branch=dist
           git remote add origin "${SERVER_URL}/${REPOSITORY}.git"
-          git config "$auth_key" "$auth"
+          git config "http.${SERVER_URL}/.extraheader" "AUTHORIZATION: basic ${basic_auth}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           existing="$(git ls-remote origin refs/heads/dist)"
