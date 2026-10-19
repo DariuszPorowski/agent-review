@@ -2119,14 +2119,20 @@ function renderMarkdown(container, markdown, options = {}) {
             flushList();
             continue;
         }
-        if (/^[-*]\s+/.test(line)) {
+        const listItem = /^(?:[-*]|\d+[.)])\s+(.+)$/.exec(line);
+        if (listItem) {
             flushParagraph();
-            if (!list) {
-                list = el("ul", "");
+            const tag = /^\d/.test(line) ? "ol" : "ul";
+            if (!list || list.tagName.toLowerCase() !== tag) {
+                list = el(tag, "");
+                if (tag === "ol") {
+                    const start = Number(/^\d+/.exec(line)[0]);
+                    if (Number.isSafeInteger(start) && start <= 2147483647) list.start = start;
+                }
                 container.append(list);
             }
             const item = el("li", "");
-            appendInlineMarkdown(item, line.replace(/^[-*]\s+/, ""), options);
+            appendInlineMarkdown(item, listItem[1], options);
             list.append(item);
             continue;
         }
@@ -2200,6 +2206,20 @@ function renderAnnotation(item, annotation, loading = false) {
         body.append(more);
     } else renderMarkdown(body, markdown);
     panel.append(body);
+    const deepen = el("button", "link-button annotation-deepen", "Ask for a deeper walkthrough");
+    deepen.type = "button";
+    deepen.addEventListener("click", async () => {
+        try {
+            await discussItem(item);
+            if (discussionPane.item?.id !== item.id || state.selected?.id !== item.id) return;
+            discussionPane.prefill("Walk through this change step by step: explain before/after control flow, precedence and fallbacks, a concrete input/output example, affected consumers, and what the saved tests do or do not establish. Cite the saved code.");
+        } catch (error) { showError(error); }
+    });
+    panel.append(deepen);
+    if (annotation.source_scope?.current_complete === false || annotation.source_scope?.base_complete === false
+        || annotation.source_scope?.limits?.omitted_diff_hunks || annotation.source_scope?.limits?.omitted_related_symbols) {
+        panel.append(el("p", "muted", "Some saved source or related evidence was omitted from this explanation's context. Ask for a deeper walkthrough to retrieve more; omitted code is not missing from the snapshot."));
+    }
     if (annotation.evidence_ids?.length) {
         const citations = el("details", "annotation-citations");
         citations.append(el("summary", "", `Evidence (${annotation.evidence_ids.length})`));

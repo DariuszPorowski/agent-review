@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { generateIsolatedExplanation } from "../ai-explainer.mjs";
 
-import { selectedModelFromEvents, validateExplanation } from "../ai-response.mjs";
+import { ExplanationValidationError, selectedModelFromEvents, validateExplanation } from "../ai-response.mjs";
 import {
     ANNOTATION_HEADINGS,
     OVERVIEW_HEADINGS,
     buildAnnotationPrompt,
+    buildAnnotationVerificationPrompt,
     buildOverviewPrompt,
     buildPackagePrompt,
 } from "../ai-prompts.mjs";
@@ -33,6 +35,54 @@ test("selects the most recent model event", () => {
 
 test("accepts an explanation with every required section", () => {
     assert.equal(validateExplanation(validExplanation, ANNOTATION_HEADINGS), validExplanation);
+});
+
+test("an injected explanation runtime uses the production validation and read-only session without a host SDK import", async () => {
+    let options, request, disconnected = false;
+    const body = await generateIsolatedExplanation({
+        workingDirectory: "C:\\repo", prompt: "Explain saved code.", requiredHeadings: ANNOTATION_HEADINGS,
+        runtimeClient: { createSession: async (input) => {
+            options = input;
+            return { sendAndWait: async (input) => { request = input; return { data: { content: validExplanation } }; },
+                disconnect: async () => { disconnected = true; } };
+        } },
+    });
+    assert.equal(body, validExplanation);
+    assert.equal(request.prompt, "Explain saved code.");
+    assert.deepEqual(options.availableTools, []);
+    assert.deepEqual(options.excludedTools, ["builtin:*", "mcp:*", "custom:*"]);
+    assert.equal(disconnected, true);
+});
+
+test("source-fidelity checking uses a separate session and returns the checked answer, never the unchecked draft", async () => {
+    const requests = [];
+    const corrected = validExplanation.replaceAll("Evidence-backed detail", "Checked source detail");
+    const result = await generateIsolatedExplanation({
+        workingDirectory: "C:\\repo", prompt: "Write a source explanation.", requiredHeadings: ANNOTATION_HEADINGS,
+        verifyPrompt: (draft) => buildAnnotationVerificationPrompt({ code_context: { path: "a.js" } }, draft),
+        runtimeClient: { createSession: async () => ({
+            sendAndWait: async (input, timeout) => {
+                requests.push({ ...input, timeout });
+                return { data: { content: requests.length === 1 ? validExplanation : corrected } };
+            }, disconnect: async () => {},
+        }) },
+    });
+    assert.equal(requests.length, 2);
+    assert.equal(result, corrected);
+    assert.match(requests[1].prompt, /every supplied input field|EVERY supplied input field/);
+    assert.match(requests[1].prompt, /flag gates B only/);
+    assert.match(requests[1].prompt, /Evidence-backed detail/);
+    assert.ok(requests[1].timeout <= requests[0].timeout && requests[1].timeout > 0);
+});
+
+test("validation failures keep their type so bounded discussion repairs still work through the provider", async () => {
+    await assert.rejects(generateIsolatedExplanation({
+        workingDirectory: "C:\\repo", prompt: "Read saved evidence.", attempts: 1,
+        verifyPrompt: () => { throw new ExplanationValidationError("Invalid saved range: end >= start required."); },
+        runtimeClient: { createSession: async () => ({
+            sendAndWait: async () => ({ data: { content: "{}" } }), disconnect: async () => {},
+        }) },
+    }), (error) => error instanceof ExplanationValidationError && /end >= start/.test(error.message));
 });
 
 test("rejects duplicate-action, tool-style, and incomplete responses", () => {
@@ -91,10 +141,14 @@ test("builds a bounded change-level overview prompt", () => {
     assert.ok(prompt.length < 4500, "prompt instructions stay compact");
 });
 
-test("annotation prompt enforces a concise, agent-aware briefing", () => {
+test("annotation prompt explains mechanisms and examples instead of enforcing a superficial bullet cap", () => {
     const prompt = buildAnnotationPrompt({});
-    assert.match(prompt, /150-220 words/);
-    assert.match(prompt, /at most 25 words/);
+    assert.match(prompt, /350-650 words/);
+    assert.match(prompt, /numbered \*\*Execution order\*\*/);
+    assert.match(prompt, /which conflicting value wins/);
+    assert.match(prompt, /Example \(derived from source, not executed\)/);
+    assert.match(prompt, /code_context\.base and code_context\.current/);
+    assert.doesNotMatch(prompt, /150-220 words|every bullet is one sentence of at most 25 words/);
     assert.match(prompt, /written by an AI agent/);
 });
 

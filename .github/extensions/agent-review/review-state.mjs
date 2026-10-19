@@ -27,6 +27,7 @@ import { runReview } from "./review-pipeline.mjs";
 import { reviewIdentity } from "./review-pipeline.mjs";
 import { answerDiscussion } from "./item-discussion.mjs";
 import { contextForSection, sectionsFor } from "./review-sections-context.mjs";
+import { annotationCodeContext } from "./annotation-context.mjs";
 
 const execFileAsync = promisify(execFile);
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -1064,7 +1065,11 @@ export class ReviewState {
             this.discussionUpdate = thread;
             this.broadcast("discussion");
         };
-        const run = Promise.resolve().then(() => answerDiscussion({
+        const run = Promise.resolve().then(async () => {
+            context.explanation_context = await this.codeContextFor(context);
+            controller.signal.throwIfAborted();
+            if (this.model !== model) throw new Error("The saved snapshot changed while preparing discussion evidence.");
+            return answerDiscussion({
             model, context, question: question.trim(), history, signal: controller.signal,
             generate: this.generateDiscussion,
             readSource: async (path, side) => {
@@ -1077,7 +1082,8 @@ export class ReviewState {
                 message.activity.push(activity);
                 publish();
             },
-        })).then((answer) => {
+            });
+        }).then((answer) => {
             Object.assign(message, answer, { status: "complete" });
         }, (error) => {
             message.status = controller.signal.aborted ? "stopped" : "error";
@@ -1478,6 +1484,10 @@ export class ReviewState {
             context.session_intent = this.intentForReview(context.session_attribution).slice(-6);
             context.commit_intent = this.reviewTarget.intent || null;
             context.code_context = await this.codeContextFor(context);
+            if (context.related_edges.length > 40) {
+                context.analysis_quality.omitted_relationships = context.related_edges.length - 40;
+                context.related_edges = context.related_edges.slice(0, 40);
+            }
             if (this.decisionMap?.status === "loading") await this.decisionMapFor();
             if (generation !== this.reviewGeneration) throw new Error("The review changed while loading annotation context.");
             const subjectCallables = callablesForSubject(this.decisionMap, this.model, context.subject);
@@ -1492,6 +1502,11 @@ export class ReviewState {
                     id: `annotation:${id}`,
                     item_id: id,
                     body: String(body || "").trim(),
+                    source_scope: context.code_context ? {
+                        current_complete: context.code_context.current?.complete ?? null,
+                        base_complete: context.code_context.base?.complete ?? null,
+                        limits: context.code_context.evidence_limits,
+                    } : null,
                     evidence_ids: Object.keys(context.evidence || {}),
                     generated_at: new Date().toISOString(),
                 };
@@ -1648,71 +1663,7 @@ export class ReviewState {
     }
 
     async codeContextFor(context) {
-        const evidenceWithPath = Object.values(context.evidence || {}).find((entry) => entry.path);
-        const subject = context.subject || {};
-        const path = subject.path || evidenceWithPath?.path;
-        if (!path) return null;
-        const snapshot = await this.sourceForPath(path);
-        const source = snapshot.current;
-        if (source === null) return { path, unavailable: "File is removed in the current snapshot." };
-
-        const lines = source.split(/\r?\n/);
-        const evidenceLine = Number(evidenceWithPath?.line || subject.start_line || 1);
-        const start = subject.kind === "module"
-            ? 1
-            : Math.max(1, evidenceLine - 20);
-        const requestedEnd = subject.kind === "module"
-            ? Math.min(lines.length, 100)
-            : Math.min(lines.length, Number(subject.end_line || evidenceLine + 30));
-        const end = Math.min(requestedEnd, start + 119);
-        const diff = snapshot.diff.length > 24_000
-            ? `${snapshot.diff.slice(0, 24_000)}\n… diff truncated …` : snapshot.diff;
-        const diffError = snapshot.diff_error;
-        const usages = [];
-        const subjectName = String(subject.name || "");
-        if (/^[A-Za-z_][A-Za-z0-9_]{2,}$/.test(subjectName)) {
-            const matcher = new RegExp(`\\b${subjectName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
-            const adapter = sourceAdapter(path);
-            const sourcePaths = [...new Set(
-                this.model.nodes
-                    .filter((candidate) => candidate.kind === "module" && adapter?.sourcePath(candidate.path))
-                    .map((candidate) => candidate.path)
-            )];
-            for (const candidatePath of sourcePaths) {
-                let candidateSource;
-                try {
-                    candidateSource = await this.readCurrentSource(candidatePath);
-                    if (candidateSource === null) continue;
-                } catch (error) {
-                    if (error.code === "ENOENT") continue;
-                    throw error;
-                }
-                const candidateLines = candidateSource.split(/\r?\n/);
-                for (let index = 0; index < candidateLines.length && usages.length < 30; index += 1) {
-                    if (matcher.test(candidateLines[index])) {
-                        usages.push({
-                            path: candidatePath,
-                            line: index + 1,
-                            text: candidateLines[index].trim().slice(0, 300),
-                        });
-                    }
-                }
-                if (usages.length >= 30) break;
-            }
-        }
-        return {
-            path,
-            start_line: start,
-            end_line: end,
-            excerpt: lines
-                .slice(start - 1, end)
-                .map((line, index) => `${start + index}: ${line}`)
-                .join("\n"),
-            truncated: end < lines.length,
-            diff,
-            diff_error: diffError,
-            usages,
-        };
+        return annotationCodeContext(this.model, context, (path) => this.sourceForPath(path));
     }
 
     attributionForPath(path) {

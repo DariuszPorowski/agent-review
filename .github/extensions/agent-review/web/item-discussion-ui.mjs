@@ -88,6 +88,15 @@ export class ItemDiscussionPane {
         }
     }
 
+    prefill(question) {
+        if (this.input.value.trim()) {
+            this.activity.textContent = "Your existing draft was kept. Add a request for a deeper walkthrough when ready.";
+            return;
+        }
+        this.input.value = question;
+        this.input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
     update(thread) {
         if (thread.item_id !== this.item?.id || (this.thread && thread.id !== this.thread.id)) return;
         if (this.thread && (thread.revision || 0) < (this.thread.revision || 0)) return;

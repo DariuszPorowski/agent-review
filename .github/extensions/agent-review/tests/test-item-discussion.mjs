@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { answerDiscussion, discussionContext, discussionPrompt, validateDiscussionResponse } from "../item-discussion.mjs";
+import { answerDiscussion, buildDiscussionVerificationPrompt, discussionContext, discussionPrompt, validateDiscussionResponse } from "../item-discussion.mjs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +14,16 @@ test("discussion context is bounded and source citations must be supplied", () =
     assert.throws(() => validateDiscussionResponse({
         answer: "Claim", limitation: "", citations: [{ evidence_id: input.evidence[0].id, line: 500 }], requests: [],
     }, input), /not supplied/);
+});
+test("only final discussion answers receive a separate operator-scope and example check", () => {
+    const input = discussionContext(model, context, [], "Explain.");
+    assert.equal(buildDiscussionVerificationPrompt(input, { answer: "", limitation: "", citations: [], requests: [
+        { path: "a.js", side: "current", start_line: 1, end_line: 1 },
+    ] }), null);
+    const prompt = buildDiscussionVerificationPrompt(input, { answer: "The saved value is one.", limitation: "",
+        citations: [{ evidence_id: input.evidence[0].id, line: 1 }], requests: [] });
+    assert.match(prompt, /flag gates only B, never A/);
+    assert.match(prompt, /The saved value is one/);
 });
 test("package attention questions retain the exact dependency identity and declarations", () => {
     const state = new ReviewState("C:\\repo");
@@ -84,6 +94,36 @@ test("invalid model ranges receive a bounded correction attempt instead of becom
         } });
     assert.equal(result.content, "The saved value is one.");
     assert.equal(calls, 2);
+});
+test("a final-round invalid absolute range is repaired without exhausting successful retrieval rounds", async () => {
+    let calls = 0;
+    const reviewed = { ...model, source_files: { ...model.source_files, "b.js": { current: "one\ntwo\nthree\n" } } };
+    const answer = await answerDiscussion({ model: reviewed, context, history: [], question: "Explain.", onActivity: () => {},
+        generate: async (input) => {
+            calls++;
+            if (calls <= 3) return { answer: "", limitation: "", citations: [], requests: [
+                { path: "b.js", side: "current", start_line: calls, end_line: calls },
+            ] };
+            if (calls === 4) return { answer: "", limitation: "", citations: [], requests: [
+                { path: "b.js", side: "current", start_line: 201, end_line: 200 },
+            ] };
+            assert.match(input.validation_error, /end >= start/);
+            return { answer: "Source inspected, not executed.", limitation: "No runtime proof.",
+                citations: [{ evidence_id: input.evidence[0].id, line: 1 }], requests: [] };
+        } });
+    assert.equal(calls, 5);
+    assert.equal(answer.content, "Source inspected, not executed.");
+});
+test("initial deeper discussion receives saved before/helper evidence including blank source lines", () => {
+    const input = discussionContext(model, { ...context, explanation_context: {
+        path: "a.js", current: { ranges: [] }, base: { ranges: [{ excerpt: "10: old result\n11: \n" }] },
+        usages: [{ path: "helper.js", side: "current", role: "dependency",
+            ranges: [{ excerpt: "5: if (!text.includes('cited:')) return null;\n" }] }],
+        declarations: [], tests: [],
+    } }, [], "Validate the example.");
+    assert.ok(input.evidence.some((item) => item.side === "base" && item.lines.some((line) => line.line === 11 && line.text === "")));
+    assert.ok(input.evidence.some((item) => item.path === "helper.js" && item.lines[0].text.includes("cited:")));
+    assert.match(discussionPrompt(input), /201,end_line=400 is valid/);
 });
 test("cancellation reaches the model provider", async () => {
     const controller = new AbortController();

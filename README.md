@@ -188,6 +188,23 @@ the behavioral change; supporting background is available under **Full
 explanation**. Section context follows its exact source ranges into the same
 evidence workspace.
 
+Code explanations lead with the behavioral change, then walk through execution
+order, early exits, precedence, fallbacks, and a concrete source-derived example.
+Nontrivial changes receive more detail by default rather than a fixed short
+bullet summary. Explanations receive bounded, line-numbered Base/Current
+implementations around the selected construct, relevant diff hunks, and
+source-backed consumer/dependency/test excerpts; they do not assume that the
+first file hunk or first 120 lines represent the whole function.
+Partial ranges and omitted context are disclosed, not described as absent code.
+Examples derived from source are not presented as executed tests.
+The default Copilot provider separately checks draft code explanations and final
+discussion answers against the supplied source before presenting them. This
+bounded AI source-fidelity pass shares the generation time limit; it is not test
+execution or a guarantee that every interpretation is correct.
+**Ask for a deeper walkthrough** opens the same snapshot-pinned discussion with
+a suggested question, preserving an existing draft and never sending it
+automatically. That discussion can retrieve additional saved source.
+
 Use **Find / shortcuts** (Ctrl+K outside editable fields) to find changed files,
 source symbols, and findings without searching the full source text. Results are
 bounded and report how many matches remain. With focus in the review or source

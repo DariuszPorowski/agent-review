@@ -5,6 +5,7 @@ import { buildCustomAnalysisPrompt, CUSTOM_ANALYSIS_HEADINGS, validateCustomAnal
 import {
     ANNOTATION_HEADINGS,
     buildAnnotationPrompt,
+    buildAnnotationVerificationPrompt,
     buildOverviewPrompt,
     buildPackagePrompt,
     OVERVIEW_HEADINGS,
@@ -18,7 +19,7 @@ import { ReviewLifecycle } from "./review-lifecycle.mjs";
 import { pruneStaleArtifacts } from "./storage-cleanup.mjs";
 import { buildReviewPrompt, reviewResponseSchema, validateReviewResponse } from "./review-pipeline.mjs";
 import { selectedModelFromEvents } from "./ai-response.mjs";
-import { discussionPrompt, discussionSchema, validateDiscussionResponse } from "./item-discussion.mjs";
+import { buildDiscussionVerificationPrompt, discussionPrompt, discussionSchema, validateDiscussionResponse } from "./item-discussion.mjs";
 
 const instances = new Map();
 const pendingInstances = new Map();
@@ -92,6 +93,7 @@ function createReviewState(requestedPath, input) {
         generateDiscussion: async (context, { signal }) => generateIsolatedExplanation({
             workingDirectory: state.repoRoot, prompt: discussionPrompt(context),
             responseSchema: discussionSchema(context), sourceEvents: await session.getEvents(),
+            verifyPrompt: (content) => buildDiscussionVerificationPrompt(context, content),
             signal, attempts: 1,
             validateResponse: (content) => {
                 validateDiscussionResponse(content, context);
@@ -116,6 +118,7 @@ function createReviewState(requestedPath, input) {
                 prompt: overview ? buildOverviewPrompt(context) : buildAnnotationPrompt(context),
                 sourceEvents: await session.getEvents(),
                 requiredHeadings: overview ? OVERVIEW_HEADINGS : ANNOTATION_HEADINGS,
+                ...(!overview ? { verifyPrompt: (draft) => buildAnnotationVerificationPrompt(context, draft) } : {}),
             });
         },
         generatePackageExplanation: async ({ dependency, assessment, usageContext }) => generateIsolatedExplanation({

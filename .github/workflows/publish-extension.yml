@@ -48,6 +48,7 @@ jobs:
           .github/extensions/agent-review/tests/test-managed-copilot.mjs
           .github/extensions/agent-review/tests/test-historical-sessions.mjs
           .github/extensions/agent-review/tests/test-ai-explainer.mjs
+          .github/extensions/agent-review/tests/test-annotation-context.mjs
           .github/extensions/agent-review/tests/test-review-state.mjs
 
   build:

@@ -1,5 +1,3 @@
-import { CopilotClient, RuntimeConnection } from "@github/copilot-sdk";
-
 import { managedCopilotPath } from "./managed-copilot.mjs";
 import {
     ExplanationValidationError,
@@ -8,6 +6,16 @@ import {
 } from "./ai-response.mjs";
 
 export { selectedModelFromEvents, validateExplanation } from "./ai-response.mjs";
+
+async function createClient(workingDirectory) {
+    const { CopilotClient, RuntimeConnection } = await import("@github/copilot-sdk");
+    return new CopilotClient({
+        connection: RuntimeConnection.forStdio({
+            path: await managedCopilotPath(), args: ["--server", "--stdio", "--no-auto-update"],
+        }),
+        workingDirectory, logLevel: "error",
+    });
+}
 
 async function generateOnce({
     workingDirectory,
@@ -22,14 +30,7 @@ async function generateOnce({
     responseSchema,
 }) {
     signal?.throwIfAborted();
-    const client = runtimeClient || new CopilotClient({
-        connection: RuntimeConnection.forStdio({
-            path: await managedCopilotPath(),
-            args: ["--server", "--stdio", "--no-auto-update"],
-        }),
-        workingDirectory,
-        logLevel: "error",
-    });
+    const client = runtimeClient || await createClient(workingDirectory);
     let isolated;
     const abort = () => {
         if (isolated) void isolated.abort().catch((error) => console.error("[agent-review] Failed to abort review request:", error));
@@ -72,31 +73,35 @@ async function generateOnce({
 }
 
 export async function createExplanationRuntime(workingDirectory, modelId = null) {
-    const client = new CopilotClient({
-        connection: RuntimeConnection.forStdio({
-            path: await managedCopilotPath(), args: ["--server", "--stdio", "--no-auto-update"],
-        }),
-        workingDirectory, logLevel: "error",
-    });
+    const client = await createClient(workingDirectory);
     await client.start();
     return { client, modelId, dispose: () => client.stop() };
 }
 
 export async function generateIsolatedExplanation(options) {
     const attempts = options.attempts ?? 2;
+    const deadline = options.verifyPrompt ? Date.now() + (options.timeoutMs ?? 120_000) : null;
+    const timeout = () => {
+        if (deadline === null) return options.timeoutMs;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new Error("Explanation generation and source-fidelity check exceeded their time limit.");
+        return remaining;
+    };
     let lastError;
     let request = options;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
         try {
-            return await generateOnce(request);
+            const content = await generateOnce({ ...request, timeoutMs: timeout() });
+            const verification = options.verifyPrompt?.(content);
+            if (!verification) return content;
+            return await generateOnce({ ...request, prompt: verification, timeoutMs: timeout() });
         } catch (error) {
             lastError = error;
             if (!(error instanceof ExplanationValidationError)) throw error;
             request = { ...options, prompt: `${options.prompt}\n\nThe previous response failed validation: ${error.message}\nReturn a corrected response that satisfies the original format and evidence constraints.` };
         }
     }
-    throw new Error(
+    throw new ExplanationValidationError(
         `Copilot did not return a valid explanation after ${attempts} isolated attempt${attempts === 1 ? "" : "s"}: ${lastError?.message}`,
-        { cause: lastError },
     );
 }

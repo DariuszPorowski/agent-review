@@ -24,7 +24,7 @@ function evidence(path, side, lines) {
     return { id: digest(JSON.stringify(value)).slice(0, 32), ...value };
 }
 
-function splitLines(path, side, lines, limit, gaps) {
+export function splitLines(path, side, lines, limit, gaps) {
     const result = [];
     let selected = [];
     for (const line of lines) {

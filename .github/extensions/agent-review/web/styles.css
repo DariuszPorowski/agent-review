@@ -681,7 +681,7 @@ marker path { fill: var(--cp-border-strong); }
 .annotation-body, .annotation-loading, .annotation-error { margin-top: 9px; font-size: .6875rem; line-height: 1.6; }
 .annotation-body { max-height: 220px; overflow: auto; padding-right: 8px; }
 .annotation-body p + p, .markdown-body p + p { margin-top: 10px; }
-.annotation-body ul, .markdown-body ul { margin: 8px 0; padding-left: 22px; }
+.annotation-body ul, .annotation-body ol, .markdown-body ul, .markdown-body ol { margin: 8px 0; padding-left: 22px; }
 .annotation-body li + li, .markdown-body li + li { margin-top: 4px; }
 .annotation-body h1, .annotation-body h2, .annotation-body h3,
 .markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 10px 0 4px; }
@@ -1229,7 +1229,7 @@ main { padding: 16px 20px 32px; }
   letter-spacing: .06em;
   text-transform: uppercase;
 }
-.annotation-body ul, .brief-ai ul { margin: 4px 0; padding-left: 18px; }
+.annotation-body ul, .annotation-body ol, .brief-ai ul, .discussion-content ol { margin: 4px 0; padding-left: 18px; }
 .annotation-citations { display: block; margin-top: 10px; }
 .annotation-citations summary { color: var(--cp-text-muted); font-size: .75rem; cursor: pointer; }
 .annotation-citations .evidence-list { margin-top: 6px; }
