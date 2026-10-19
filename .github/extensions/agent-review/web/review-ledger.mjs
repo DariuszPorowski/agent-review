@@ -80,3 +80,23 @@ export function nextReviewItem(plan, entries) {
 export function isReviewComplete(disposition) {
     return completedDispositions.has(disposition);
 }
+
+export const fileReviewId = (path) => `review-file:${path}`;
+
+export function fileReviewProgress(model, entries) {
+    const files = (model?.changes || []).filter((file) => file.status !== "unchanged");
+    let reviewed = 0, followUp = 0;
+    for (const file of files) {
+        const disposition = entries.get(fileReviewId(file.path))?.disposition;
+        if (disposition === "reviewed") reviewed++;
+        if (disposition === "follow-up") followUp++;
+    }
+    return { total: files.length, reviewed, followUp, pending: files.length - reviewed - followUp };
+}
+
+export function nextFileReview(files, entries, current = null) {
+    const index = files.findIndex((file) => file.path === current);
+    const ordered = index >= 0 ? [...files.slice(index + 1), ...files.slice(0, index + 1)] : files;
+    return ordered.find((file) => (entries.get(fileReviewId(file.path))?.disposition || "pending") === "pending")
+        || ordered.find((file) => entries.get(fileReviewId(file.path))?.disposition === "follow-up") || null;
+}

@@ -67,6 +67,18 @@ remain under **Explore** rather than competing as primary review routes.
 On narrow canvases, **Code** and **Context / Discussion** are focused panes, with
 the change navigator in a keyboard-accessible drawer.
 
+Whole-file review decisions have a clear finish line: **Not reviewed**,
+**Reviewed**, or **Needs follow-up**. **Mark file reviewed & next** records a
+whole-file decision and advances only after the save succeeds. File notes and
+the reading point are stored in the Copilot session workspace, independently of
+the canvas's local server port; a provider without a workspace explicitly
+identifies memory-only storage. Existing priority and group decisions are kept
+separately and never silently promoted into whole-file completion.
+**Review all group files** requires an explicit scope confirmation and preserves
+existing notes. **Finish** lists pending work, follow-ups, retained finer-grained
+decisions and verification limits. Human completion does not resolve findings,
+complete AI analysis, establish coverage, or prove correctness.
+
 A change brief shows file mix, source/test churn, coverage availability, and the
 originating request. Copilot uses bounded, saved implementation and test excerpts
 to explain behavior changes, suggest a review order, and distinguish demonstrated

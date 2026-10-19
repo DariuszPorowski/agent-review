@@ -15,7 +15,7 @@ import { buildReviewPlan } from "/review-plan.mjs";
 import { fileTree, groupForSource, workspaceNavigation } from "/review-workspace.mjs";
 import { countLabel, plural } from "/count-format.mjs";
 import {
-    REVIEW_DISPOSITIONS, isReviewComplete, nextReviewItem, parseReviewLedger, reviewProgress,
+    REVIEW_DISPOSITIONS, fileReviewId, fileReviewProgress, isReviewComplete, nextFileReview, nextReviewItem, parseReviewLedger, reviewProgress,
     reviewSnapshotKey, serializeReviewLedger,
 } from "/review-ledger.mjs";
 import {
@@ -54,14 +54,18 @@ const state = {
     navigationQuery: "",
     readingPane: "code",
     exploring: false,
+    fileReviewDrafts: new Map(),
 };
 const elements = Object.fromEntries([
     "review-target-form", "review-mode", "review-ref", "review-target-label", "repository-identity", "review-list-refresh", "review-more", "review-options-status", "review-picker-notice", "clean-review", "change-brief",
     "review-overview", "review-background", "overview-title", "overview-description", "overview-progress", "overview-scope", "overview-start", "overview-files",
-    "review-workflow", "workflow-overview", "workflow-review", "workspace-target", "workspace-find", "workspace-nav-toggle",
+    "review-workflow", "workflow-overview", "workflow-review", "workflow-finish", "review-finish", "workspace-target", "workspace-find", "workspace-nav-toggle",
     "workspace-return-source", "review-navigation", "workspace-groups", "workspace-files", "workspace-search", "workspace-count",
     "workspace-nav-list", "workspace-code", "workspace-context", "workspace-group-label", "workspace-group-retry",
     "explore-priorities", "explore-concerns", "explore-groups", "explore-architecture", "explore-paths", "explore-packages",
+    "review-progress-status", "review-progress-retry", "review-progress-backup", "file-review-form", "file-review-label",
+    "file-review-disposition", "file-review-note", "file-review-save", "file-review-next", "file-review-status", "file-review-retry",
+    "group-review-dialog", "group-review-title", "group-review-scope", "group-review-error", "group-review-confirm", "group-review-cancel",
     "status", "refresh", "cancel-analysis", "analysis-cancelled", "source-context-notice", "connection-notice", "reconnect", "worktree-notice", "worktree-notice-text", "worktree-reanalyze", "error", "analysis-progress", "progress-phase", "progress-message", "progress-percent",
     "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize", "impact-view", "source-impact",
     "show-evidence", "show-discussion", "item-discussion", "sections-view", "source-section",
@@ -100,8 +104,11 @@ function renderWorkspaceShell() {
     document.body.classList.toggle("reading-source", reviewing && !elements.source_panel.classList.contains("hidden"));
     document.body.classList.toggle("workspace-exploring", Boolean(state.exploring));
     document.body.dataset.readingPane = state.readingPane;
-    elements.workflow_overview.setAttribute("aria-current", reviewing ? "false" : "page");
+    elements.workflow_overview.setAttribute("aria-current", state.reviewPage === "overview" ? "page" : "false");
     elements.workflow_review.setAttribute("aria-current", reviewing ? "page" : "false");
+    elements.workflow_finish.setAttribute("aria-current", state.reviewPage === "finish" ? "page" : "false");
+    document.body.classList.toggle("finishing-review", ready && state.reviewPage === "finish");
+    elements.review_finish.classList.toggle("hidden", !ready || state.reviewPage !== "finish");
     elements.workflow_review.disabled = !ready || isEmptyReview(state.payload);
     const meta = state.payload?.model?.metadata;
     elements.workspace_target.textContent = meta ? `${meta.repo_root?.split(/[\\/]/).at(-1) || "Repository"} · ${
@@ -138,7 +145,8 @@ function rememberWorkspaceSource() {
         attribution: state.attribution, attributionStatus: state.attributionStatus, attributionMessage: state.attributionMessage,
         scroll: { top: elements.source.scrollTop, left: elements.source.scrollLeft,
             side: elements.source_panel.querySelector(".source-side").scrollTop },
-        discussion: state.discussionMode, pane: state.readingPane, group: state.activeReviewGroup, query: state.navigationQuery,
+        discussion: state.discussionMode, pane: state.readingPane, cursor: viewedSourceLocation(),
+        group: state.activeReviewGroup, query: state.navigationQuery,
     };
 }
 
@@ -188,6 +196,7 @@ elements.workflow_review.addEventListener("click", () => {
     if (state.workspaceReturn) returnWorkspaceSource().catch(showError);
     else elements.overview_start.click();
 });
+elements.workflow_finish.addEventListener("click", () => openFinishReview());
 elements.workspace_return_source.addEventListener("click", () => returnWorkspaceSource().catch(showError));
 elements.workspace_find.addEventListener("click", openReviewCommands);
 elements.workspace_nav_toggle.addEventListener("click", () => {
@@ -291,9 +300,22 @@ function renderWorkspaceNavigation() {
                 const file = files.find((file) => file.path === first?.path) || files[0];
                 openWorkspaceFile(file, entry).catch(showError);
             });
-            summary.append(open, el("span", "muted", String(files.length)));
+            const progress = el("span", "muted", String(files.length));
+            progress.dataset.groupProgress = entry.id;
+            summary.append(open, progress);
             details.append(summary);
             appendTree(details, fileTree(files), entry);
+            const mark = el("button", "link-button", "Review all group files…");
+            mark.type = "button";
+            mark.addEventListener("click", () => {
+                state.bulkReviewGroup = entry;
+                elements.group_review_error.classList.add("hidden");
+                elements.group_review_title.textContent = `Mark ${entry.files.length} files reviewed`;
+                elements.group_review_scope.textContent = `${entry.title}. This includes every changed file in this group, not just files matching the current filter. Existing notes are kept.`;
+                elements.group_review_confirm.disabled = !state.progressReady || state.progressSaving;
+                elements.group_review_dialog.showModal();
+            });
+            details.append(mark);
             if (query) details.open = true;
             list.append(details);
         }
@@ -309,6 +331,13 @@ function renderWorkspaceNavigation() {
                 if (parent.tagName === "DETAILS") parent.open = true;
             }
         } else button.removeAttribute("aria-current");
+        const disposition = state.reviewLedger.get(fileReviewId(button.dataset.path))?.disposition || "pending";
+        button.dataset.reviewState = disposition;
+        button.setAttribute("aria-label", `${button.dataset.path} · ${disposition}`);
+    }
+    for (const count of elements.workspace_nav_list.querySelectorAll("[data-group-progress]")) {
+        const entry = navigation.groups.find((group) => group.id === count.dataset.groupProgress);
+        if (entry) count.textContent = `${entry.files.filter((file) => state.reviewLedger.get(fileReviewId(file.path))?.disposition === "reviewed").length}/${entry.files.length}`;
     }
 }
 
@@ -975,32 +1004,110 @@ function toggleFinding(item) {
     }
 }
 
-function loadReviewLedger(model) {
+function loadReviewLedger(model, { force = false } = {}) {
     const key = reviewSnapshotKey(model, state.payload?.review_target);
-    if (state.reviewLedgerStorageKey === key) return;
+    if (state.reviewLedgerStorageKey === key && !force) return;
+    const previous = state.reviewLedgerStorageKey;
     state.reviewLedgerStorageKey = key;
     state.reviewLedgerError = null;
-    try {
-        state.reviewLedger = parseReviewLedger(localStorage.getItem(key));
-    } catch (error) {
-        state.reviewLedger = new Map();
-        state.reviewLedgerError = `Unable to restore review progress: ${error.message}`;
+    if (previous !== key) {
+        try {
+            state.reviewLedger = parseReviewLedger(localStorage.getItem(key));
+            state.progressLegacyCopy = localStorage.getItem(`${key}:unmigrated`) || null;
+        } catch (error) {
+            state.reviewLedger = new Map();
+            state.reviewLedgerError = `Unable to restore browser review progress: ${error.message}`;
+        }
     }
+    state.progressLoading = true;
+    state.progressReady = false;
+    state.progressError = null;
+    renderFileReview();
+    const local = serializeReviewLedger(state.reviewLedger);
+    api("/api/review-progress").then(async (record) => {
+        if (state.reviewLedgerStorageKey !== key) return;
+        if (record.snapshot !== key) throw new Error("Saved progress returned a different source snapshot.");
+        if (!record.revision && state.reviewLedger.size) {
+            record = await api("/api/review-progress", { method: "POST",
+                body: JSON.stringify({ snapshot: key, revision: 0, entries: JSON.parse(local), cursor: record.cursor }) });
+        } else if (record.revision && local !== "{}" && local !== JSON.stringify(record.entries)) {
+            state.progressLegacyCopy = local;
+            try { localStorage.setItem(`${key}:unmigrated`, local); }
+            catch (error) { state.reviewLedgerError = `Browser progress differs from the saved copy; export it before closing: ${error.message}`; }
+        }
+        if (state.reviewLedgerStorageKey !== key) return;
+        state.reviewLedger = parseReviewLedger(JSON.stringify(record.entries));
+        state.progressRevision = record.revision;
+        state.progressDurable = record.durable;
+        state.savedReviewCursor = record.cursor;
+        state.progressReady = true;
+        state.progressLoading = false;
+        render();
+        renderFileReview();
+    }).catch((error) => {
+        if (state.reviewLedgerStorageKey !== key) return;
+        state.progressLoading = false;
+        state.progressError = error.message;
+        renderReviewOverview();
+        renderFileReview();
+    });
 }
 
-function saveReviewLedger() {
+function cacheReviewLedger() {
     try {
         localStorage.setItem(state.reviewLedgerStorageKey, serializeReviewLedger(state.reviewLedger));
         state.reviewLedgerError = null;
     } catch (error) {
-        state.reviewLedgerError = `Unable to save review progress: ${error.message}`;
+        state.reviewLedgerError = `Session progress is saved, but its browser cache could not be updated: ${error.message}`;
         showError(new Error(state.reviewLedgerError));
         return false;
     }
     return true;
 }
 
-function setReviewDisposition(item, disposition, note = "") {
+function currentReviewCursor() {
+    const source = state.source || state.workspaceReturn?.source;
+    if (!source?.path) return state.savedReviewCursor || null;
+    const viewed = viewedSourceLocation() || state.workspaceReturn?.cursor;
+    return { path: source.path, line: viewed?.line || Number(source.start_line) || 1,
+        side: viewed?.side || source.focus_side || (source.current === null ? "base" : "current"),
+        tab: state.source ? state.sourceTab : state.workspaceReturn.tab,
+        item_id: (state.selected || state.workspaceReturn?.selected)?.id || null, group: state.activeReviewGroup || null };
+}
+
+async function persistReviewEntries(entries, cursor = currentReviewCursor(), { quiet = false } = {}) {
+    if (!state.progressReady || state.progressSaving) {
+        showError(new Error(state.progressSaving ? "Wait for the current review decision to save." : "Reload saved progress before recording a decision."));
+        return false;
+    }
+    const key = state.reviewLedgerStorageKey;
+    state.progressSaving = true;
+    state.progressError = null;
+    renderFileReview();
+    try {
+        const record = await api("/api/review-progress", { method: "POST",
+            body: JSON.stringify({ snapshot: key, revision: state.progressRevision, entries: Object.fromEntries(entries), cursor }) });
+        if (state.reviewLedgerStorageKey !== key) return false;
+        state.reviewLedger = parseReviewLedger(JSON.stringify(record.entries));
+        state.progressRevision = record.revision;
+        state.progressDurable = record.durable;
+        state.savedReviewCursor = record.cursor;
+        cacheReviewLedger();
+        if (!quiet) render();
+        return true;
+    } catch (error) {
+        if (state.reviewLedgerStorageKey === key) {
+            state.progressError = error.message;
+            if (!quiet) showError(error);
+        }
+        return false;
+    } finally {
+        if (state.reviewLedgerStorageKey === key) state.progressSaving = false;
+        renderFileReview();
+    }
+}
+
+async function setReviewDisposition(item, disposition, note = "") {
     const record = {
         disposition,
         note: note.trim(),
@@ -1011,11 +1118,193 @@ function setReviewDisposition(item, disposition, note = "") {
     const entries = new Map(state.reviewLedger);
     if (disposition === "pending" && !record.note) entries.delete(item.id);
     else entries.set(item.id, record);
-    state.reviewLedger = entries;
-    if (!saveReviewLedger()) return;
-    render();
-    if (state.source) renderSourceRisk();
+    if (await persistReviewEntries(entries) && state.source) renderSourceRisk();
 }
+
+elements.review_progress_retry.addEventListener("click", () => loadReviewLedger(state.payload.model, { force: true }));
+elements.file_review_retry.addEventListener("click", () => loadReviewLedger(state.payload.model, { force: true }));
+elements.review_progress_backup.addEventListener("click", () => {
+    const blob = new Blob([state.progressLegacyCopy || "{}"], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "previous-browser-review-progress.json";
+    link.click();
+    URL.revokeObjectURL(link.href);
+});
+
+function fileReviewQueue() {
+    const navigation = workspaceNavigation(state.payload?.model, state.sectionData);
+    const files = [...new Map(navigation.groups.flatMap((group) => group.files).map((file) => [file.path, file])).values()];
+    const priorities = new Map(overviewPlan().map((item) => [item.path, item.score]));
+    return files.sort((a, b) => (priorities.get(b.path) || 0) - (priorities.get(a.path) || 0));
+}
+
+async function openFileReview(file) {
+    if (!file) { openFinishReview(); return; }
+    const priority = overviewPlan().find((item) => item.path === file.path);
+    if (priority) { openReviewPlanItem(priority); return; }
+    const navigation = workspaceNavigation(state.payload.model, state.sectionData);
+    await openWorkspaceFile(file, navigation.groups.find((group) => group.files.some((item) => item.path === file.path)));
+}
+
+async function resumeReviewCursor(cursor) {
+    const model = state.payload?.model;
+    if (!cursor || !Object.hasOwn(model.source_files || {}, cursor.path)) throw new Error("The saved reading point is unavailable in this snapshot.");
+    let item = [...model.nodes, ...model.edges || [], ...model.package_changes || [], ...model.package_dependencies || [],
+        ...model.attention || [], ...(state.payload.generated_observations || [])].find((item) => item.id === cursor.item_id);
+    if (!item && cursor.item_id?.startsWith("section:")) {
+        const data = await api("/api/review-sections");
+        if (state.payload.model !== model) throw new Error("The review changed while restoring the saved group.");
+        const section = data.sections.find((section) => section.id === cursor.item_id);
+        if (section) item = { id: section.id, kind: "section", title: section.title, path: cursor.path };
+    }
+    if (!item && model.evidence?.[cursor.item_id]) item = { id: cursor.item_id, kind: "evidence", path: cursor.path };
+    if (!item && cursor.item_id && cursor.item_id !== `file:${cursor.path}`) throw new Error("The saved review item is unavailable; newer context was not substituted.");
+    state.selected = item || { id: `file:${cursor.path}`, kind: "file", path: cursor.path, name: cursor.path };
+    state.reviewPage = "review";
+    state.exploring = false;
+    state.mode = "walkthrough";
+    state.activeReviewGroup = cursor.group;
+    await openSourceReference({ path: cursor.path, lines: [cursor.line], side: cursor.side },
+        { focus: true, tab: cursor.tab, nav: "reset" });
+}
+
+function renderFileReview() {
+    const source = state.source;
+    const changed = source && state.payload?.model?.changes?.some((file) => file.path === source.path && file.status !== "unchanged");
+    elements.file_review_form.classList.toggle("hidden", !changed);
+    if (!changed) return;
+    const key = `${state.reviewLedgerStorageKey}:${source.path}`;
+    const record = state.fileReviewDrafts.get(key) || state.reviewLedger.get(fileReviewId(source.path)) || { disposition: "pending", note: "" };
+    elements.file_review_label.textContent = `Whole-file review · ${source.path}`;
+    if (elements.file_review_form.dataset.key !== key || !state.fileReviewDrafts.has(key)) {
+        elements.file_review_form.dataset.key = key;
+        elements.file_review_disposition.value = record.disposition;
+        elements.file_review_note.value = record.note || "";
+    }
+    const disabled = !state.progressReady || state.progressSaving;
+    for (const element of [elements.file_review_disposition, elements.file_review_note, elements.file_review_save, elements.file_review_next]) element.disabled = Boolean(disabled);
+    elements.file_review_next.textContent = elements.file_review_disposition.value === "pending" ? "Mark file reviewed & next"
+        : elements.file_review_disposition.value === "follow-up" ? "Save follow-up & next" : "Save & next";
+    elements.file_review_status.textContent = state.progressError ? `Not saved: ${state.progressError}`
+        : state.progressLoading ? "Restoring session progress…" : state.progressSaving ? "Saving…"
+            : state.fileReviewDrafts.has(key) ? "Unsaved whole-file decision"
+            : state.progressDurable ? "Progress saved in this session workspace" : "Progress is memory-only until this provider closes";
+    elements.file_review_retry.classList.toggle("hidden", !state.progressError);
+}
+
+function keepFileDraft() {
+    if (!state.source) return;
+    state.fileReviewDrafts.set(`${state.reviewLedgerStorageKey}:${state.source.path}`, {
+        disposition: elements.file_review_disposition.value, note: elements.file_review_note.value,
+    });
+    renderFileReview();
+}
+elements.file_review_disposition.addEventListener("change", keepFileDraft);
+elements.file_review_note.addEventListener("input", keepFileDraft);
+async function saveCurrentFile(advance) {
+    const source = state.source;
+    if (!source) return;
+    const path = source.path;
+    const key = `${state.reviewLedgerStorageKey}:${path}`;
+    const disposition = advance && elements.file_review_disposition.value === "pending" ? "reviewed" : elements.file_review_disposition.value;
+    const entries = new Map(state.reviewLedger);
+    entries.set(fileReviewId(path), { disposition, note: elements.file_review_note.value.trim(), path,
+        line: currentReviewCursor()?.line || 1, updated_at: new Date().toISOString() });
+    if (!await persistReviewEntries(entries)) return;
+    state.fileReviewDrafts.delete(key);
+    elements.file_review_form.dataset.key = "";
+    renderFileReview();
+    if (advance) {
+        const next = nextFileReview(fileReviewQueue(), state.reviewLedger, path);
+        if (!next || (next.path === path && disposition !== "pending")) openFinishReview();
+        else await openFileReview(next);
+    }
+}
+elements.file_review_save.addEventListener("click", () => saveCurrentFile(false).catch(showError));
+elements.file_review_form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveCurrentFile(true).catch(showError);
+});
+elements.group_review_cancel.addEventListener("click", () => elements.group_review_dialog.close());
+elements.group_review_confirm.addEventListener("click", async () => {
+    const group = state.bulkReviewGroup;
+    if (!group) return;
+    elements.group_review_confirm.disabled = true;
+    const entries = new Map(state.reviewLedger);
+    const updated = new Date().toISOString();
+    for (const file of group.files) {
+        const previous = entries.get(fileReviewId(file.path));
+        entries.set(fileReviewId(file.path), { disposition: "reviewed", path: file.path,
+            note: previous?.note || "", line: previous?.line || 1, updated_at: updated });
+    }
+    if (await persistReviewEntries(entries)) elements.group_review_dialog.close();
+    else {
+        elements.group_review_confirm.disabled = false;
+        elements.group_review_error.textContent = state.progressError || "Unable to save these file decisions.";
+        elements.group_review_error.classList.remove("hidden");
+    }
+});
+
+function openFinishReview() {
+    rememberWorkspaceSource();
+    setSourceFocus(false);
+    state.reviewPage = "finish";
+    state.navigationOpen = false;
+    elements.source_panel.classList.add("hidden");
+    render();
+    elements.review_finish.focus({ preventScroll: true });
+}
+
+function renderFinishReview() {
+    const model = state.payload?.model;
+    if (!model || state.reviewPage !== "finish") return;
+    const progress = fileReviewProgress(model, state.reviewLedger);
+    const panel = elements.review_finish;
+    panel.replaceChildren(el("p", "eyebrow", "HUMAN REVIEW SUMMARY"),
+        el("h2", "", progress.pending || progress.followUp ? "Review has remaining work" : "Changed files marked reviewed"),
+        el("p", "", `${progress.reviewed} of ${countLabel(progress.total, "changed file")} reviewed · ${progress.pending} not reviewed · ${progress.followUp} need follow-up`),
+        el("p", "muted", "Human review decisions do not prove correctness, resolve concerns, complete AI analysis or establish test coverage."));
+    const next = nextFileReview(fileReviewQueue(), state.reviewLedger);
+    if (next) {
+        const button = el("button", "review-next", "Continue remaining review");
+        button.type = "button";
+        button.addEventListener("click", () => openFileReview(next).catch(showError));
+        panel.append(button);
+    }
+    const legacy = [...state.reviewLedger].filter(([id]) => !id.startsWith("review-file:"));
+    if (legacy.length) panel.append(el("p", "muted", `${countLabel(legacy.length, "priority/group decision")} retained separately; these were not promoted to whole-file completion.`));
+    const findings = groupFindings(model.attention || []);
+    panel.append(el("p", "", `${countLabel(findings.filter((item) => !isFindingClosed(item, state.closedFindingKeys)).length, "active concern")} remain in the saved findings.`));
+    const tests = state.payload.test_run;
+    panel.append(el("p", "muted", tests?.status === "complete"
+        ? `Linked-test run completed: ${tests.counts?.passed || 0} passed, ${tests.counts?.failed || 0} failed. This is separate from human review.`
+        : "No completed linked-test run is recorded for this view. Coverage and AI analysis retain their own evidence limits."));
+    const list = el("div", "finish-files");
+    for (const file of fileReviewQueue()) {
+        const record = state.reviewLedger.get(fileReviewId(file.path));
+        const button = el("button", "workspace-file", `${record?.disposition || "pending"} · ${file.path}${record?.note ? ` — ${record.note}` : ""}`);
+        button.type = "button";
+        button.addEventListener("click", () => openFileReview(file).catch(showError));
+        list.append(button);
+    }
+    const details = el("details", "");
+    details.append(el("summary", "", "All file decisions"), list);
+    panel.append(details);
+}
+
+function queueReviewCursor() {
+    clearTimeout(state.cursorSaveTimer);
+    if (!state.progressReady || !state.source) return;
+    const snapshot = state.reviewLedgerStorageKey;
+    state.cursorSaveTimer = setTimeout(() => {
+        if (snapshot !== state.reviewLedgerStorageKey || state.progressSaving || !state.source) return;
+        const cursor = currentReviewCursor();
+        if (JSON.stringify(cursor) === JSON.stringify(state.savedReviewCursor)) return;
+        persistReviewEntries(new Map(state.reviewLedger), cursor, { quiet: true });
+    }, 800);
+}
+elements.source.addEventListener("scroll", queueReviewCursor, { passive: true });
 
 function markSelectedCards() {
     document.querySelectorAll(".review-card[data-item-id]").forEach((card) =>
@@ -1617,8 +1906,8 @@ function renderReviewOverview() {
     if (hidden) return;
     const target = payload.review_target;
     const plan = overviewPlan();
-    const progress = reviewProgress(plan, state.reviewLedger);
-    const next = nextReviewItem(plan, state.reviewLedger);
+    const progress = fileReviewProgress(model, state.reviewLedger);
+    const next = nextFileReview(fileReviewQueue(), state.reviewLedger);
     const changed = (model.changes || []).filter((change) => change.status !== "unchanged").length;
     elements.overview_title.textContent = target?.intent?.subject || target?.intent?.title
         || (target?.mode === "worktree" ? "Review your uncommitted changes" : target?.label || "Review this change");
@@ -1635,21 +1924,25 @@ function renderReviewOverview() {
             : state.overviewError ? "The AI overview is unavailable. You can review the saved code now, or open change details to retry."
                 : "Review the saved changes and available evidence. Open change details for intent, metrics and AI summary status."));
     }
-    elements.overview_progress.textContent = `${countLabel(changed, "changed file")} · ${
-        progress.total ? `${progress.completed} of ${countLabel(progress.total, "priority item")} reviewed`
-            + (progress.followUp ? ` · ${countLabel(progress.followUp, "follow-up")}` : "")
-            : "No changes crossed the priority thresholds"}`;
+    elements.overview_progress.textContent = `${countLabel(changed, "changed file")} · ${progress.reviewed} reviewed · ${
+        progress.pending} not reviewed${progress.followUp ? ` · ${countLabel(progress.followUp, "follow-up")}` : ""}`;
     elements.overview_scope.textContent = plan.omitted
         ? `The focused queue shows ${plan.length} of ${plan.qualifying} qualifying priorities. All changed files remain available.`
-        : "Priority items are a focused starting point, not complete review coverage. All changed files remain available.";
+        : "Progress records explicit whole-file decisions. Priority/group decisions, AI analysis and executed tests remain separate.";
     elements.overview_start.textContent = next
-        ? [...state.reviewLedger.values()].some((entry) => entry.disposition !== "pending") ? "Continue review" : "Start review"
-        : plan.length ? "Browse all files" : "Start review";
-    elements.overview_start.title = next ? `Next: ${next.title}${next.path ? ` · ${next.path}` : ""}` : "Inspect all changed files";
-    const disabled = Boolean(payload.loading || payload.cancelled || state.connectionLost);
+        ? state.savedReviewCursor || [...state.reviewLedger.values()].some((entry) => entry.disposition !== "pending") ? "Continue review" : "Start review"
+        : "Review summary";
+    elements.overview_start.title = next ? `Next changed file: ${next.path}` : "Review saved decisions and remaining concerns";
+    const disabled = Boolean(payload.loading || payload.cancelled || state.connectionLost || state.progressLoading);
     elements.overview_start.disabled = disabled;
     elements.overview_files.disabled = disabled;
     elements.overview_files.textContent = `Browse all ${countLabel(changed, "file")}`;
+    elements.review_progress_status.textContent = state.progressLoading ? "Restoring session progress…"
+        : state.progressError ? `Progress unavailable: ${state.progressError}`
+            : state.progressReady ? state.progressDurable ? "Review decisions and reading point are saved in this session workspace."
+                : "This provider retains progress only in memory." : "";
+    elements.review_progress_retry.classList.toggle("hidden", !state.progressError);
+    elements.review_progress_backup.classList.toggle("hidden", !state.progressLegacyCopy);
 }
 
 function browseReviewFiles() {
@@ -1671,9 +1964,11 @@ function browseReviewFiles() {
 }
 
 elements.overview_start.addEventListener("click", () => {
-    const next = nextReviewItem(overviewPlan(), state.reviewLedger);
-    if (next) openReviewPlanItem(next);
-    else browseReviewFiles();
+    const saved = state.savedReviewCursor;
+    const changed = saved && state.payload.model.changes.some((file) => file.path === saved.path && file.status !== "unchanged");
+    if (changed && (state.reviewLedger.get(fileReviewId(saved.path))?.disposition || "pending") === "pending") {
+        resumeReviewCursor(saved).catch(showError);
+    } else openFileReview(nextFileReview(fileReviewQueue(), state.reviewLedger)).catch(showError);
 });
 elements.overview_files.addEventListener("click", browseReviewFiles);
 
@@ -3071,17 +3366,6 @@ async function renderSource({ preserveScroll = false } = {}) {
     cached.marked = [...new Set([...focused, ...cited])];
     if (elements.source.firstElementChild !== lines) elements.source.replaceChildren(lines);
     elements.source.removeAttribute("aria-busy");
-    if (!preserveScroll) {
-        elements.source.scrollTop = 0;
-        elements.source.scrollLeft = 0;
-        focused[0]?.scrollIntoView({ block: "center" });
-    }
-    if (preserveScroll) {
-        elements.source.scrollTop = previousScroll.top;
-        elements.source.scrollLeft = previousScroll.left;
-    } else if (cited[0] && !(Number.isFinite(focusStart) && focusStart > 0)) {
-        cited[0].scrollIntoView({ block: "center" });
-    }
     renderChangeRuler(rows);
     const annotation = state.payload?.annotations?.[state.selected?.id];
     const selectedPath = state.selected?.path || state.payload?.model?.nodes?.find((node) =>
@@ -3093,6 +3377,17 @@ async function renderSource({ preserveScroll = false } = {}) {
     renderProvenance();
     document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === state.sourceTab));
     renderSourceNavigation();
+    renderFileReview();
+    if (preserveScroll) {
+        elements.source.scrollTop = previousScroll.top;
+        elements.source.scrollLeft = previousScroll.left;
+    } else {
+        elements.source.scrollTop = 0;
+        elements.source.scrollLeft = 0;
+        const target = focused[0] || cited[0];
+        target?.scrollIntoView({ block: "center" });
+    }
+    queueReviewCursor();
     return true;
 }
 
@@ -3824,7 +4119,7 @@ function renderSourceRisk() {
     note.value = record?.note || "";
     note.placeholder = `Review note for ${state.source.path}:${state.source.start_line || item.line || 1}`;
     note.setAttribute("aria-label", "Review note");
-    const save = el("button", "source-review-save", "Save review");
+    const save = el("button", "source-review-save", "Save priority decision");
     save.type = "button";
     const saveEntry = () => setReviewDisposition(item, disposition.value, note.value);
     save.addEventListener("click", saveEntry);
@@ -3835,7 +4130,9 @@ function renderSourceRisk() {
         }
     });
     controls.append(dispositionLabel, note, save);
-    panel.append(reasons, controls);
+    const priority = el("details", "priority-review-details");
+    priority.append(el("summary", "", "Priority-only decision (separate from whole-file review)"), controls);
+    panel.append(reasons, priority);
 }
 
 function renderSourceDecisions() {
@@ -4584,6 +4881,7 @@ function render() {
         }
     }
     renderChangeBrief();
+    renderFinishReview();
     renderSummary(model);
     renderBreadcrumbs();
     const groupedObservations = [
@@ -4994,6 +5292,12 @@ function updateReviewApply() {
 }
 
 function resetReviewNavigation() {
+    clearTimeout(state.cursorSaveTimer);
+    state.progressReady = false;
+    state.progressSaving = false;
+    state.progressLoading = false;
+    state.progressError = null;
+    state.savedReviewCursor = null;
     elements.review_background.open = false;
     state.reviewPage = "overview";
     state.navigationMode = "groups";

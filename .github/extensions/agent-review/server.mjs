@@ -130,6 +130,18 @@ export function startReviewServer(state, options = {}) {
                 sendJson(res, browserSnapshot(state.snapshot()));
                 return;
             }
+            if (req.method === "GET" && pathname === "/api/review-progress") {
+                sendJson(res, await state.progressForReview());
+                return;
+            }
+            if (req.method === "POST" && pathname === "/api/review-progress") {
+                try { sendJson(res, await state.saveReviewProgress(await readJson(req))); }
+                catch (error) {
+                    if (error.code !== "review_progress_conflict") throw error;
+                    sendJson(res, { error: error.message, code: error.code }, 409);
+                }
+                return;
+            }
             if (req.method === "GET" && pathname === "/api/discussion") {
                 sendJson(res, { thread: await state.discussionFor(requestUrl.searchParams.get("id")),
                     available: Boolean(state.generateDiscussion) });

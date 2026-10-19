@@ -34,6 +34,7 @@
     <nav id="review-workflow" class="review-workflow hidden" aria-label="Review workflow">
         <button id="workflow-overview" type="button" aria-current="page">Overview</button>
         <button id="workflow-review" type="button">Review</button>
+        <button id="workflow-finish" type="button">Finish</button>
         <span id="workspace-target" class="workspace-target"></span>
         <button id="workspace-find" type="button">Find</button>
         <button id="workspace-nav-toggle" type="button" aria-expanded="false" aria-controls="review-navigation">Groups / Files</button>
@@ -110,7 +111,11 @@
             <div id="overview-description"></div>
             <p id="overview-progress" class="overview-progress"></p>
             <p id="overview-scope" class="muted"></p>
+            <p id="review-progress-status" class="muted" role="status"></p>
+            <button id="review-progress-retry" class="link-button hidden" type="button">Reload saved progress</button>
+            <button id="review-progress-backup" class="link-button hidden" type="button">Save previous browser progress copy</button>
         </section>
+        <section id="review-finish" class="review-finish hidden" aria-label="Review summary" tabindex="-1"></section>
         <details id="review-background" class="review-background hidden">
             <summary>Change summary, intent and advanced checks</summary>
         <section id="change-brief" class="change-brief" aria-label="Change brief"></section>
@@ -215,6 +220,20 @@
                     <aside id="source-decisions" class="source-decisions hidden" aria-label="Code path changes"></aside>
                 </div>
             </div>
+            <form id="file-review-form" class="file-review-footer hidden">
+                <label><span id="file-review-label">Whole-file review</span>
+                    <select id="file-review-disposition" aria-label="Whole-file decision">
+                        <option value="pending">Not reviewed</option>
+                        <option value="reviewed">Reviewed</option>
+                        <option value="follow-up">Needs follow-up</option>
+                    </select>
+                </label>
+                <input id="file-review-note" type="text" maxlength="500" aria-label="Whole-file review note" placeholder="Optional file review note">
+                <button id="file-review-save" type="button">Save decision</button>
+                <button id="file-review-next" type="submit">Mark file reviewed &amp; next</button>
+                <span id="file-review-status" class="muted" role="status"></span>
+                <button id="file-review-retry" class="link-button hidden" type="button">Reload saved progress</button>
+            </form>
         </section>
         <section id="session-history-panel" class="session-history-panel hidden">
             <div class="panel-heading">
@@ -228,6 +247,14 @@
             <div id="session-transcript" class="session-transcript"></div>
         </section>
     </main>
+    <dialog id="group-review-dialog" class="prompt-manager" aria-labelledby="group-review-title">
+        <h2 id="group-review-title">Mark group files reviewed</h2>
+        <p id="group-review-scope"></p>
+        <p id="group-review-error" class="error hidden" role="alert"></p>
+        <p class="muted">This records your whole-file review decisions. It does not run tests, resolve concerns, or establish correctness.</p>
+        <button id="group-review-confirm" type="button">Mark all group files reviewed</button>
+        <button id="group-review-cancel" type="button">Cancel</button>
+    </dialog>
     <dialog id="review-command-palette" class="prompt-manager" aria-labelledby="review-command-title">
         <div class="custom-heading">
             <h2 id="review-command-title">Find in this review</h2>

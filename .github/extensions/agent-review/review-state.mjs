@@ -28,6 +28,8 @@ import { reviewIdentity } from "./review-pipeline.mjs";
 import { answerDiscussion } from "./item-discussion.mjs";
 import { contextForSection, sectionsFor } from "./review-sections-context.mjs";
 import { annotationCodeContext } from "./annotation-context.mjs";
+import { ReviewProgressStore, validateReviewCursor } from "./review-progress.mjs";
+import { reviewSnapshotKey } from "./web/review-ledger.mjs";
 
 const execFileAsync = promisify(execFile);
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -274,6 +276,7 @@ export class ReviewState {
         this.worktreeCheckError = null;
         this.worktreeMonitorOwners = 0;
         this.workspacePath = options.workspacePath;
+        this.reviewProgressStore = new ReviewProgressStore(this.workspacePath);
         this.generatedObservations = [];
         this.selection = null;
         this.listeners = new Set();
@@ -322,6 +325,36 @@ export class ReviewState {
         this.progress = null;
         this.sessionHistories = new Map();
         this.historicalContextPromise = null;
+    }
+
+    async progressForReview() {
+        if (!this.model || this.loading) throw new Error("Wait for the saved review before loading progress.");
+        return this.reviewProgressStore.read(reviewSnapshotKey(this.model, this.reviewTarget));
+    }
+
+    async saveReviewProgress({ snapshot, revision, entries, cursor = null }) {
+        const model = this.model;
+        if (!model || this.loading || snapshot !== reviewSnapshotKey(model, this.reviewTarget)) {
+            throw new Error("Review progress belongs to another saved snapshot.");
+        }
+        const changed = new Set((model.changes || []).filter((file) => file.status !== "unchanged").map((file) => file.path));
+        for (const [id, entry] of Object.entries(entries || {})) {
+            if (id.startsWith("review-file:") && (!changed.has(id.slice("review-file:".length)) || entry?.path !== id.slice("review-file:".length))) {
+                throw new Error("Whole-file review decisions must identify a changed file in this snapshot.");
+            }
+        }
+        const location = validateReviewCursor(cursor);
+        if (location) {
+            if (!Object.hasOwn(model.source_files || {}, location.path)) throw new Error("Saved cursor path is not available in this snapshot.");
+            if (location.item_id) this.contextFor(location.item_id);
+            const source = await this.sourceForPath(location.path);
+            const text = location.side === "base" ? source.base : source.current;
+            if (typeof text !== "string" || location.line > text.split(/\r?\n/).length) {
+                throw new Error("Saved cursor line is not available in this snapshot.");
+            }
+        }
+        if (this.model !== model) throw new Error("The review changed before progress could be saved.");
+        return this.reviewProgressStore.update(snapshot, revision, entries, location);
     }
 
     snapshot() {

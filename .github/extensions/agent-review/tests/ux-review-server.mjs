@@ -46,7 +46,9 @@ if (process.env.AGENT_REVIEW_UX_ANNOTATIONS) {
         || cached.head !== state.model.metadata.head_sha) throw new Error("Saved UX annotations do not match the selected source snapshot.");
     state.annotations = cached.annotations;
 }
-const server = await startReviewServer(state);
+const port = process.env.AGENT_REVIEW_UX_PORT ? Number(process.env.AGENT_REVIEW_UX_PORT) : null;
+if (port !== null && (!Number.isInteger(port) || port < 1 || port > 65535)) throw new Error("AGENT_REVIEW_UX_PORT must be a valid TCP port.");
+const server = await startReviewServer(state, port === null ? {} : { port, exactPort: true });
 const info = { url: server.url, repo, pid: process.pid, discussionAvailable: Boolean(client) };
 if (process.env.AGENT_REVIEW_UX_INFO) await writeFile(process.env.AGENT_REVIEW_UX_INFO, JSON.stringify(info));
 console.log(JSON.stringify(info));
