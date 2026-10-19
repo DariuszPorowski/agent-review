@@ -51,6 +51,7 @@ jobs:
           .github/extensions/agent-review/tests/test-annotation-context.mjs
           .github/extensions/agent-review/tests/test-review-state.mjs
           .github/extensions/agent-review/tests/test-review-progress.mjs
+          .github/extensions/agent-review/tests/test-review-handoff.mjs
 
   build:
     permissions:

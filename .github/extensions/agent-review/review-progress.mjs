@@ -3,8 +3,12 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseReviewLedger } from "./web/review-ledger.mjs";
 
-function validateEntries(entries) {
+export function validateReviewEntries(entries) {
     if (!entries || typeof entries !== "object" || Array.isArray(entries)) throw new Error("Review progress entries must be an object.");
+    for (const entry of Object.values(entries)) {
+        if (entry?.line != null && (!Number.isSafeInteger(entry.line) || entry.line < 1)
+            || entry?.path != null && typeof entry.path !== "string") throw new Error("Invalid review progress location.");
+    }
     const parsed = parseReviewLedger(JSON.stringify(entries));
     if (parsed.size > 3000) throw new Error("Review progress exceeds its 3000-record limit.");
     for (const [id, entry] of parsed) {
@@ -47,13 +51,13 @@ export class ReviewProgressStore {
         if (value.version !== 1 || value.snapshot !== snapshot || !Number.isSafeInteger(value.revision) || value.revision < 0) {
             throw new Error("Saved review progress does not match this snapshot or schema.");
         }
-        return { ...value, entries: validateEntries(value.entries), cursor: validateReviewCursor(value.cursor),
+        return { ...value, entries: validateReviewEntries(value.entries), cursor: validateReviewCursor(value.cursor),
             durable: Boolean(this.directory) };
     }
 
     async update(snapshot, revision, entries, cursor) {
         if (!Number.isSafeInteger(revision) || revision < 0) throw new Error("A valid review progress revision is required.");
-        const nextEntries = validateEntries(entries);
+        const nextEntries = validateReviewEntries(entries);
         const nextCursor = validateReviewCursor(cursor);
         const write = async () => {
             const current = await this.read(snapshot);

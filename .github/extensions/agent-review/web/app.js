@@ -67,6 +67,9 @@ const elements = Object.fromEntries([
     "review-progress-status", "review-progress-retry", "review-progress-backup", "file-review-form", "file-review-label",
     "file-review-disposition", "file-review-note", "file-review-save", "file-review-next", "file-review-status", "file-review-retry",
     "group-review-dialog", "group-review-title", "group-review-scope", "group-review-error", "group-review-confirm", "group-review-cancel",
+    "review-handoff", "handoff-close", "handoff-status", "handoff-error", "handoff-refresh", "handoff-markdown",
+    "handoff-markdown-save", "handoff-state-save", "handoff-state-preview", "handoff-import-file", "handoff-import-preview",
+    "handoff-import-confirm", "handoff-import-error", "handoff-provider", "handoff-provider-status", "handoff-provider-error", "handoff-confirm", "handoff-submit",
     "status", "refresh", "cancel-analysis", "analysis-cancelled", "source-context-notice", "connection-notice", "reconnect", "worktree-notice", "worktree-notice-text", "worktree-reanalyze", "error", "analysis-progress", "progress-phase", "progress-message", "progress-percent",
     "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize", "impact-view", "source-impact",
     "show-evidence", "show-discussion", "item-discussion", "sections-view", "source-section",
@@ -148,7 +151,7 @@ function sourceScrollPosition() {
 function rememberWorkspaceSource() {
     if (!state.source || elements.source_panel.classList.contains("hidden")) return;
     state.workspaceReturn = {
-        generation: state.payload.review_generation, source: state.source, selected: state.selected, tab: state.sourceTab,
+        generation: state.payload.review_generation, source: state.source, selected: state.source.reviewItem || state.selected, tab: state.sourceTab,
         history: { ...state.sourceHistory, entries: [...state.sourceHistory.entries] },
         attribution: state.attribution, attributionStatus: state.attributionStatus, attributionMessage: state.attributionMessage,
         scroll: { ...sourceScrollPosition(),
@@ -192,6 +195,8 @@ async function returnWorkspaceSource({ code = false } = {}) {
 }
 
 elements.workflow_overview.addEventListener("click", () => {
+    state.selectionEpoch++;
+    sourceRenderVersion++;
     rememberWorkspaceSource();
     setSourceFocus(false);
     state.reviewPage = "overview";
@@ -1092,7 +1097,7 @@ function currentReviewCursor() {
     return { path: source.path, line: viewed?.line || Number(source.start_line) || 1,
         side: viewed?.side || source.focus_side || (source.current === null ? "base" : "current"),
         tab: state.source ? state.sourceTab : state.workspaceReturn.tab,
-        item_id: (state.selected || state.workspaceReturn?.selected)?.id || null, group: state.activeReviewGroup || null };
+        item_id: (source.reviewItem || state.selected || state.workspaceReturn?.selected)?.id || null, group: state.activeReviewGroup || null };
 }
 
 async function persistReviewEntries(entries, cursor = currentReviewCursor(), { quiet = false } = {}) {
@@ -1267,6 +1272,8 @@ elements.group_review_confirm.addEventListener("click", async () => {
 });
 
 function openFinishReview() {
+    state.selectionEpoch++;
+    sourceRenderVersion++;
     rememberWorkspaceSource();
     setSourceFocus(false);
     state.reviewPage = "finish";
@@ -1311,7 +1318,170 @@ function renderFinishReview() {
     const details = el("details", "");
     details.append(el("summary", "", "All file decisions"), list);
     panel.append(details);
+    const handoff = el("button", "review-next", "Preview / export handoff");
+    handoff.type = "button";
+    handoff.disabled = !state.progressReady || state.progressSaving;
+    handoff.addEventListener("click", () => openReviewHandoff());
+    panel.append(handoff);
 }
+
+function handoffError(error, panel = elements.handoff_error) {
+    panel.textContent = error.message;
+    panel.classList.remove("hidden");
+    panel.tabIndex = -1;
+    panel.focus({ preventScroll: true });
+    panel.scrollIntoView({ block: "nearest" });
+}
+
+async function openReviewHandoff() {
+    const epoch = state.handoffEpoch = (state.handoffEpoch || 0) + 1;
+    state.handoff = null;
+    state.handoffImport = null;
+    elements.handoff_error.classList.add("hidden");
+    elements.handoff_import_error.classList.add("hidden");
+    elements.handoff_provider_error.classList.add("hidden");
+    elements.handoff_provider_status.textContent = "";
+    elements.handoff_status.textContent = "Preparing the saved-snapshot preview…";
+    elements.handoff_markdown.value = "";
+    elements.handoff_state_preview.textContent = "";
+    elements.handoff_import_file.value = "";
+    elements.handoff_import_preview.textContent = "";
+    elements.handoff_confirm.checked = false;
+    for (const control of [elements.handoff_confirm, elements.handoff_submit, elements.handoff_import_confirm,
+        elements.handoff_markdown_save, elements.handoff_state_save]) control.disabled = true;
+    if (!elements.review_handoff.open) elements.review_handoff.showModal();
+    try {
+        clearTimeout(state.cursorSaveTimer);
+        if (state.source && JSON.stringify(currentReviewCursor()) !== JSON.stringify(state.savedReviewCursor)) {
+            if (!await persistReviewEntries(new Map(state.reviewLedger), currentReviewCursor(), { quiet: true })) {
+                throw new Error(state.progressError || "Save the current reading point before exporting.");
+            }
+        }
+        const preview = await api("/api/review-handoff/preview", { method: "POST", body: "{}" });
+        if (epoch !== state.handoffEpoch || !elements.review_handoff.open) return;
+        state.handoff = preview;
+        elements.handoff_markdown.value = preview.markdown;
+        elements.handoff_markdown.setSelectionRange(0, 0);
+        elements.handoff_markdown.scrollTop = 0;
+        elements.handoff_state_preview.textContent = JSON.stringify(preview.artifact, null, 2);
+        elements.handoff_status.textContent = `Saved ${preview.artifact.repository} · ${preview.artifact.target.mode} · Head ${preview.artifact.target.head}. ${
+            preview.provider.pending ? "A previous provider submission is still awaiting a receipt; a second submission is disabled." : "This preview has not submitted a review."}`;
+        elements.handoff_markdown_save.disabled = false;
+        elements.handoff_state_save.disabled = false;
+        elements.handoff_provider.replaceChildren();
+        if (preview.provider.url) {
+            const link = el("a", "", preview.provider.url);
+            link.href = preview.provider.url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            elements.handoff_provider.append("Destination: ", link, ` · Commit ${preview.provider.commit}. Uses the gh CLI's existing authorization.`);
+        }
+        elements.handoff_provider_status.textContent = preview.provider.available
+            ? "No review has been sent from this preview." : preview.provider.reason;
+        elements.handoff_confirm.disabled = !preview.provider.available;
+    } catch (error) {
+        if (epoch === state.handoffEpoch && elements.review_handoff.open) {
+            elements.handoff_status.textContent = "Preview not prepared. No export or submission occurred.";
+            handoffError(error);
+        }
+    }
+}
+elements.handoff_close.addEventListener("click", () => elements.review_handoff.close());
+elements.handoff_refresh.addEventListener("click", () => openReviewHandoff());
+elements.review_handoff.addEventListener("close", () => { state.handoffEpoch++; });
+function downloadHandoff(value, type, name) {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([value], { type }));
+    link.download = name;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+elements.handoff_markdown_save.addEventListener("click", () => {
+    if (!state.handoff) { handoffError(new Error("Prepare a handoff preview first.")); return; }
+    downloadHandoff(state.handoff.markdown, "text/markdown", "agent-review-summary.md");
+});
+elements.handoff_state_save.addEventListener("click", () => {
+    if (!state.handoff) { handoffError(new Error("Prepare a handoff preview first.")); return; }
+    downloadHandoff(JSON.stringify(state.handoff.artifact, null, 2), "application/json", "agent-review-state.json");
+});
+elements.handoff_import_file.addEventListener("change", async () => {
+    elements.handoff_error.classList.add("hidden");
+    elements.handoff_import_error.classList.add("hidden");
+    elements.handoff_import_preview.textContent = "Checking selected decision state…";
+    elements.handoff_import_confirm.disabled = true;
+    state.handoffImport = null;
+    const sequence = state.handoffImportEpoch = (state.handoffImportEpoch || 0) + 1;
+    const file = elements.handoff_import_file.files[0];
+    if (!file) { elements.handoff_import_preview.textContent = "No import file selected."; return; }
+    const epoch = state.handoffEpoch;
+    try {
+        if (file.size > 1024 * 1024) throw new Error("Choose an Agent Review state JSON up to 1 MiB.");
+        const artifact = JSON.parse(await file.text());
+        const current = await api("/api/review-progress");
+        const preview = await api("/api/review-handoff/import", { method: "POST",
+            body: JSON.stringify({ artifact, revision: current.revision, confirm: false }) });
+        if (epoch !== state.handoffEpoch || sequence !== state.handoffImportEpoch || !elements.review_handoff.open) return;
+        state.handoffImport = { artifact, revision: preview.revision };
+        elements.handoff_import_preview.textContent = `${preview.repository}: ${countLabel(preview.records, "record")} · ${preview.message}`;
+        elements.handoff_import_confirm.disabled = false;
+    } catch (error) {
+        if (epoch === state.handoffEpoch && sequence === state.handoffImportEpoch && elements.review_handoff.open) {
+            elements.handoff_import_preview.textContent = "Import not ready. Nothing was imported.";
+            handoffError(error, elements.handoff_import_error);
+        }
+    }
+});
+elements.handoff_import_confirm.addEventListener("click", async () => {
+    elements.handoff_import_confirm.disabled = true;
+    elements.handoff_error.classList.add("hidden");
+    elements.handoff_import_error.classList.add("hidden");
+    try {
+        if (!state.handoffImport) throw new Error("Preview an exact matching state file before confirming import.");
+        await api("/api/review-handoff/import", { method: "POST",
+            body: JSON.stringify({ ...state.handoffImport, confirm: true }) });
+        elements.handoff_import_preview.textContent = "Decisions imported and saved in this session workspace.";
+        state.handoffImport = null;
+        loadReviewLedger(state.payload.model, { force: true });
+        state.handoff = null;
+        elements.handoff_markdown_save.disabled = true;
+        elements.handoff_state_save.disabled = true;
+        elements.handoff_submit.disabled = true;
+        elements.handoff_confirm.disabled = true;
+        elements.handoff_confirm.checked = false;
+        elements.handoff_status.textContent = "Progress changed. Refresh the handoff preview before exporting or submitting.";
+    } catch (error) {
+        elements.handoff_import_preview.textContent = "Import failed. No decisions were overwritten.";
+        handoffError(error, elements.handoff_import_error);
+    }
+});
+elements.handoff_confirm.addEventListener("change", () => {
+    elements.handoff_submit.disabled = !state.handoff?.provider.available || !elements.handoff_confirm.checked;
+});
+function handoffProviderStatus(message) {
+    elements.handoff_status.textContent = message;
+    elements.handoff_provider_status.textContent = message;
+    elements.handoff_provider_status.focus({ preventScroll: true });
+    elements.handoff_provider_status.scrollIntoView({ block: "nearest" });
+}
+elements.handoff_submit.addEventListener("click", async () => {
+    const epoch = state.handoffEpoch;
+    elements.handoff_submit.disabled = true;
+    elements.handoff_confirm.disabled = true;
+    elements.handoff_refresh.disabled = true;
+    elements.handoff_error.classList.add("hidden");
+    elements.handoff_provider_error.classList.add("hidden");
+    handoffProviderStatus("Submitting the exact comment-only review. Waiting for the provider receipt; do not submit again.");
+    try {
+        const receipt = await api("/api/review-handoff/submit", { method: "POST",
+            body: JSON.stringify({ token: state.handoff?.token, confirm: elements.handoff_confirm.checked }) });
+        if (epoch === state.handoffEpoch) handoffProviderStatus(`Submitted comment-only review ${receipt.id} on commit ${receipt.commit}. No approval or change request was submitted.`);
+    } catch (error) {
+        if (epoch === state.handoffEpoch) {
+            handoffProviderStatus("No submission receipt. Read the error and check the PR before preparing another submission.");
+            handoffError(error, elements.handoff_provider_error);
+        }
+    } finally { elements.handoff_refresh.disabled = false; }
+});
 
 function queueReviewCursor() {
     clearTimeout(state.cursorSaveTimer);
@@ -2361,7 +2531,7 @@ async function loadSource(query, epoch, preferredTab = null, nav = "reset", extr
     if (epoch !== state.selectionEpoch) return false;
     const attribution = await fetchAttribution(source.path, epoch);
     if (epoch !== state.selectionEpoch) return false;
-    state.source = { ...source, ...extras };
+    state.source = { ...source, ...extras, reviewItem: state.selected };
     state.readingPane = "code";
     state.attribution = attribution;
     state.sourceTab = source.declaration_highlight?.side === "base" ? "base"

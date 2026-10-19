@@ -134,6 +134,18 @@ export function startReviewServer(state, options = {}) {
                 sendJson(res, await state.progressForReview());
                 return;
             }
+            if (req.method === "POST" && pathname === "/api/review-handoff/preview") {
+                sendJson(res, await state.prepareHandoff());
+                return;
+            }
+            if (req.method === "POST" && pathname === "/api/review-handoff/import") {
+                sendJson(res, await state.importHandoff(await readJson(req)));
+                return;
+            }
+            if (req.method === "POST" && pathname === "/api/review-handoff/submit") {
+                sendJson(res, await state.submitHandoff(await readJson(req)));
+                return;
+            }
             if (req.method === "POST" && pathname === "/api/review-progress") {
                 try { sendJson(res, await state.saveReviewProgress(await readJson(req))); }
                 catch (error) {

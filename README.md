@@ -86,6 +86,24 @@ existing notes. **Finish** lists pending work, follow-ups, retained finer-graine
 decisions and verification limits. Human completion does not resolve findings,
 complete AI analysis, establish coverage, or prove correctness.
 
+**Finish → Preview / export handoff** previews the exact Markdown before
+downloading it or exporting portable decision-state JSON. Both include file
+names and saved human notes, but no source bodies, AI explanations, originating
+prompts or discussion transcripts. The JSON is not a source archive or a durable
+canvas link: reopen the original saved snapshot, then preview and confirm the
+import. Content identity is independent of the repository's local directory;
+different content or conflicting existing decisions is rejected, not replaced
+with newer worktree source. Binary/unsnapshotted worktree content cannot be
+verified for portable import and is explicitly unsupported.
+
+For a loaded GitHub PR, the same preview supports an explicitly selected,
+confirmed **comment-only** review through the existing `gh` CLI authorization.
+It never approves or requests changes. The original commit is pinned and the PR
+head is rechecked before posting; changed targets/decisions, stale previews and
+duplicate submissions are rejected. A network failure may leave the remote
+outcome unknown: check the PR before preparing another submission. Local and
+commit reviews remain fully usable without creating a PR.
+
 A change brief shows file mix, source/test churn, coverage availability, and the
 originating request. Copilot uses bounded, saved implementation and test excerpts
 to explain behavior changes, suggest a review order, and distinguish demonstrated

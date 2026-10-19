@@ -28,8 +28,9 @@ import { reviewIdentity } from "./review-pipeline.mjs";
 import { answerDiscussion } from "./item-discussion.mjs";
 import { contextForSection, sectionsFor } from "./review-sections-context.mjs";
 import { annotationCodeContext } from "./annotation-context.mjs";
-import { ReviewProgressStore, validateReviewCursor } from "./review-progress.mjs";
+import { ReviewProgressStore, validateReviewCursor, validateReviewEntries } from "./review-progress.mjs";
 import { reviewSnapshotKey } from "./web/review-ledger.mjs";
+import { createReviewHandoff, submitGitHubHandoff, validateHandoffImport } from "./review-handoff.mjs";
 
 const execFileAsync = promisify(execFile);
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -277,6 +278,8 @@ export class ReviewState {
         this.worktreeMonitorOwners = 0;
         this.workspacePath = options.workspacePath;
         this.reviewProgressStore = new ReviewProgressStore(this.workspacePath);
+        this.submitHandoffReview = options.submitHandoffReview || submitGitHubHandoff;
+        this.handoffPreview = null;
         this.generatedObservations = [];
         this.selection = null;
         this.listeners = new Set();
@@ -332,13 +335,13 @@ export class ReviewState {
         return this.reviewProgressStore.read(reviewSnapshotKey(this.model, this.reviewTarget));
     }
 
-    async saveReviewProgress({ snapshot, revision, entries, cursor = null }) {
+    async validateReviewProgress({ snapshot, entries, cursor = null }) {
         const model = this.model;
         if (!model || this.loading || snapshot !== reviewSnapshotKey(model, this.reviewTarget)) {
             throw new Error("Review progress belongs to another saved snapshot.");
         }
         const changed = new Set((model.changes || []).filter((file) => file.status !== "unchanged").map((file) => file.path));
-        for (const [id, entry] of Object.entries(entries || {})) {
+        for (const [id, entry] of Object.entries(validateReviewEntries(entries))) {
             if (id.startsWith("review-file:") && (!changed.has(id.slice("review-file:".length)) || entry?.path !== id.slice("review-file:".length))) {
                 throw new Error("Whole-file review decisions must identify a changed file in this snapshot.");
             }
@@ -346,7 +349,7 @@ export class ReviewState {
         const location = validateReviewCursor(cursor);
         if (location) {
             if (!Object.hasOwn(model.source_files || {}, location.path)) throw new Error("Saved cursor path is not available in this snapshot.");
-            if (location.item_id) this.contextFor(location.item_id);
+            if (location.item_id && !model.package_dependencies?.some((item) => item.id === location.item_id)) this.contextFor(location.item_id);
             const source = await this.sourceForPath(location.path);
             const text = location.side === "base" ? source.base : source.current;
             if (typeof text !== "string" || location.line > text.split(/\r?\n/).length) {
@@ -354,7 +357,74 @@ export class ReviewState {
             }
         }
         if (this.model !== model) throw new Error("The review changed before progress could be saved.");
-        return this.reviewProgressStore.update(snapshot, revision, entries, location);
+        return location;
+    }
+
+    async saveReviewProgress(input) {
+        const location = await this.validateReviewProgress(input);
+        return this.reviewProgressStore.update(input.snapshot, input.revision, input.entries, location);
+    }
+
+    async prepareHandoff() {
+        const model = this.model;
+        if (!model || this.loading) throw new Error("Wait for the saved review before preparing a handoff.");
+        const target = this.reviewTarget;
+        const progress = await this.progressForReview();
+        if (this.model !== model || this.reviewTarget !== target) throw new Error("The review changed while preparing the handoff.");
+        const result = createReviewHandoff(model, target, progress, { testRun: this.testRun });
+        const token = randomUUID();
+        this.handoffPreview = { token, model, target, revision: progress.revision, snapshot: progress.snapshot,
+            body: result.markdown, created: Date.now(), consumed: false };
+        return { ...result, token, revision: progress.revision,
+            provider: this.handoffSubmitting ? { available: false, pending: true, url: target.url, commit: model.metadata.head_sha,
+                reason: "Awaiting the previous submission receipt. Local export is available; do not submit again." }
+                : result.markdown.length > 60_000 ? { available: false, reason: "This summary exceeds the bounded PR review size. Export locally instead; nothing will be submitted." }
+                : target.mode === "pr" && Boolean(target.url) ? { available: true, url: target.url, commit: model.metadata.head_sha }
+                : { available: false, reason: "Provider submission requires a loaded GitHub PR target. Local and commit reviews can export without creating a PR." } };
+    }
+
+    async importHandoff({ artifact, revision, confirm = false }) {
+        const model = this.model, target = this.reviewTarget;
+        if (!model || this.loading) throw new Error("Open the matching saved review before importing decisions.");
+        const incoming = validateHandoffImport(artifact, model, target);
+        const current = await this.progressForReview();
+        if (this.model !== model || this.reviewTarget !== target) throw new Error("The review changed during import.");
+        if (revision !== current.revision) throw new Error("Saved progress changed. Preview the import again; nothing was overwritten.");
+        const merged = new Map(Object.entries(current.entries));
+        for (const [id, entry] of incoming) {
+            const previous = merged.get(id);
+            if (previous && (previous.disposition !== entry.disposition || previous.note !== entry.note)) {
+                throw new Error(`Import conflicts with an existing decision for ${id}; nothing was overwritten.`);
+            }
+            merged.set(id, entry);
+        }
+        const input = { snapshot: current.snapshot, revision: current.revision,
+            entries: Object.fromEntries(merged), cursor: current.cursor || artifact.cursor || null };
+        await this.validateReviewProgress(input);
+        if (confirm !== true) return { revision: current.revision, records: incoming.size,
+            repository: artifact.repository, identity: artifact.identity, message: "Exact saved source matches. Existing differing decisions are never overwritten." };
+        return this.saveReviewProgress(input);
+    }
+
+    async submitHandoff({ token, confirm }) {
+        const preview = this.handoffPreview;
+        if (confirm !== true || !preview || token !== preview.token || preview.consumed || this.handoffSubmitting || Date.now() - preview.created > 15 * 60_000) {
+            throw new Error("A fresh preview and explicit confirmation are required; nothing was submitted.");
+        }
+        if (this.loading || this.model !== preview.model || this.reviewTarget !== preview.target || preview.target.mode !== "pr") {
+            throw new Error("The review target changed or is not a PR; nothing was submitted.");
+        }
+        const progress = await this.progressForReview();
+        if (preview.consumed || this.handoffSubmitting || this.loading || this.model !== preview.model || this.reviewTarget !== preview.target
+            || progress.snapshot !== preview.snapshot || progress.revision !== preview.revision) {
+            throw new Error("Review decisions changed. Prepare a new preview before submitting.");
+        }
+        preview.consumed = true;
+        this.handoffSubmitting = true;
+        try {
+            return await this.submitHandoffReview({ url: preview.target.url, commit: preview.model.metadata.head_sha,
+                body: preview.body, cwd: this.repoRoot });
+        } finally { this.handoffSubmitting = false; }
     }
 
     snapshot() {
