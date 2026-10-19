@@ -7,7 +7,7 @@ import { unchangedDiffContext, diffSegments } from "/diff-context.mjs";
 import { impactSlice } from "/impact-model.mjs";
 import { ItemDiscussionPane } from "/item-discussion-ui.mjs";
 import { parseReviewLocation, reviewLocation } from "/review-location.mjs";
-import { annotationSections, conciseReviewText, overviewBlurb, reviewCommands, reviewItemEvidence, reviewSignal } from "/review-presentation.mjs";
+import { annotationSections, conciseReviewText, overviewBlurb, reviewCommands, reviewContext, reviewItemEvidence, reviewSignal } from "/review-presentation.mjs";
 import { isReviewSymbol, isTestPath, languageForPath } from "/languages.mjs";
 import { ConnectionFeedback } from "/connection-feedback.mjs";
 import { describeAnalysisWarning } from "/analysis-limitations.mjs";
@@ -62,6 +62,7 @@ const elements = Object.fromEntries([
     "review-workflow", "workflow-overview", "workflow-review", "workflow-finish", "review-finish", "workspace-target", "workspace-find", "workspace-nav-toggle",
     "workspace-return-source", "review-navigation", "workspace-groups", "workspace-files", "workspace-search", "workspace-count",
     "workspace-nav-list", "workspace-code", "workspace-context", "workspace-group-label", "workspace-group-retry",
+    "workspace-discuss", "source-review-context", "source-origin",
     "explore-priorities", "explore-concerns", "explore-groups", "explore-architecture", "explore-paths", "explore-packages",
     "review-progress-status", "review-progress-retry", "review-progress-backup", "file-review-form", "file-review-label",
     "file-review-disposition", "file-review-note", "file-review-save", "file-review-next", "file-review-status", "file-review-retry",
@@ -137,20 +138,27 @@ function renderWorkspaceShell() {
         document.documentElement.style.setProperty("--workspace-top", `${top}px`);
     }
 }
+function sourceScrollPosition() {
+    if (state.source && elements.source.clientHeight) {
+        state.source.scrollPosition = { top: elements.source.scrollTop, left: elements.source.scrollLeft };
+    }
+    return state.source?.scrollPosition || { top: 0, left: 0 };
+}
+
 function rememberWorkspaceSource() {
     if (!state.source || elements.source_panel.classList.contains("hidden")) return;
     state.workspaceReturn = {
         generation: state.payload.review_generation, source: state.source, selected: state.selected, tab: state.sourceTab,
         history: { ...state.sourceHistory, entries: [...state.sourceHistory.entries] },
         attribution: state.attribution, attributionStatus: state.attributionStatus, attributionMessage: state.attributionMessage,
-        scroll: { top: elements.source.scrollTop, left: elements.source.scrollLeft,
+        scroll: { ...sourceScrollPosition(),
             side: elements.source_panel.querySelector(".source-side").scrollTop },
         discussion: state.discussionMode, pane: state.readingPane, cursor: viewedSourceLocation(),
         group: state.activeReviewGroup, query: state.navigationQuery,
     };
 }
 
-async function returnWorkspaceSource() {
+async function returnWorkspaceSource({ code = false } = {}) {
     const saved = state.workspaceReturn;
     if (!saved || saved.generation !== state.payload.review_generation) {
         showError(new Error("The previous source belongs to another review snapshot."));
@@ -167,18 +175,19 @@ async function returnWorkspaceSource() {
     state.attributionStatus = saved.attributionStatus;
     state.attributionMessage = saved.attributionMessage;
     state.activeReviewGroup = saved.group;
-    state.readingPane = saved.pane || "code";
+    state.readingPane = code ? "code" : saved.pane || "code";
     state.navigationQuery = saved.query;
     elements.workspace_search.value = saved.query || "";
     state.selectionEpoch++;
-    setDiscussionMode(Boolean(saved.discussion));
+    setDiscussionMode(!code && Boolean(saved.discussion));
     render();
     if (await renderSource()) {
         elements.source.scrollTop = saved.scroll.top;
         elements.source.scrollLeft = saved.scroll.left;
         elements.source_panel.querySelector(".source-side").scrollTop = saved.scroll.side;
-        if (saved.discussion && saved.selected) await discussionPane.open(saved.selected, state.payload.review_generation);
-        elements.source.focus({ preventScroll: true });
+        if (!code && saved.discussion && saved.selected) await discussionPane.open(saved.selected, state.payload.review_generation);
+        if (state.readingPane === "code") elements.source.focus({ preventScroll: true });
+        else if (!saved.discussion) elements.show_evidence.focus({ preventScroll: true });
     }
 }
 
@@ -197,7 +206,7 @@ elements.workflow_review.addEventListener("click", () => {
     else elements.overview_start.click();
 });
 elements.workflow_finish.addEventListener("click", () => openFinishReview());
-elements.workspace_return_source.addEventListener("click", () => returnWorkspaceSource().catch(showError));
+elements.workspace_return_source.addEventListener("click", () => returnWorkspaceSource({ code: true }).catch(showError));
 elements.workspace_find.addEventListener("click", openReviewCommands);
 elements.workspace_nav_toggle.addEventListener("click", () => {
     state.navigationOpen = !state.navigationOpen;
@@ -238,7 +247,15 @@ for (const [button, mode] of [[elements.explore_priorities, "walkthrough"], [ele
     });
 }
 for (const [button, pane] of [[elements.workspace_code, "code"], [elements.workspace_context, "context"]]) {
-    button.addEventListener("click", () => { state.readingPane = pane; renderWorkspaceShell(); });
+    button.addEventListener("click", () => {
+        const scroll = sourceScrollPosition();
+        state.readingPane = pane;
+        renderWorkspaceShell();
+        if (pane === "code") {
+            elements.source.scrollTop = scroll.top;
+            elements.source.scrollLeft = scroll.left;
+        }
+    });
 }
 
 function renderWorkspaceNavigation() {
@@ -359,6 +376,7 @@ async function openWorkspaceFile(file, group = null) {
 }
 
 function setDiscussionMode(active) {
+    sourceScrollPosition();
     state.discussionMode = active;
     elements.source_panel.querySelector(".source-side").classList.toggle("discussion-mode", active);
     elements.show_evidence.setAttribute("aria-pressed", String(!active));
@@ -611,7 +629,8 @@ async function discussItem(item = state.selected) {
         elements.source.replaceChildren(el("p", "muted", "This item has no direct source range. Discussion uses its saved relationship evidence."));
         elements.source_ruler.classList.add("hidden");
         elements.source_context_notice.classList.add("hidden");
-        for (const panel of [elements.source_provenance, elements.source_annotation, elements.source_decisions, elements.source_risk]) {
+        for (const panel of [elements.source_provenance, elements.source_annotation, elements.source_decisions, elements.source_risk,
+            elements.source_review_context, elements.source_origin, elements.file_review_form]) {
             panel.classList.add("hidden");
         }
         elements.source_panel.classList.remove("hidden");
@@ -627,6 +646,7 @@ async function discussItem(item = state.selected) {
 
 elements.show_evidence.addEventListener("click", () => setDiscussionMode(false));
 elements.show_discussion.addEventListener("click", () => discussItem().catch(showError));
+elements.workspace_discuss.addEventListener("click", () => discussItem().catch(showError));
 
 function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -1304,7 +1324,7 @@ function queueReviewCursor() {
         persistReviewEntries(new Map(state.reviewLedger), cursor, { quiet: true });
     }, 800);
 }
-elements.source.addEventListener("scroll", queueReviewCursor, { passive: true });
+elements.source.addEventListener("scroll", () => { sourceScrollPosition(); queueReviewCursor(); }, { passive: true });
 
 function markSelectedCards() {
     document.querySelectorAll(".review-card[data-item-id]").forEach((card) =>
@@ -2545,6 +2565,8 @@ function renderProvenance() {
         panel.append(el("p", className, text));
     };
     panel.classList.remove("provenance-compact");
+    elements.source_origin.classList.toggle("hidden", !state.attribution.length && !state.attributionStatus);
+    if (state.attributionStatus === "error") elements.source_origin.open = true;
     if (!state.attribution.length && state.attributionStatus === "loading") {
         note(state.attributionMessage || "Searching same-repository Copilot sessions…");
         return;
@@ -2830,6 +2852,7 @@ function extractRisk(body) {
 }
 
 function renderAnnotation(item, annotation, loading = false) {
+    renderReviewContext();
     const panel = elements.source_annotation;
     panel.replaceChildren();
     if (!item || (!loading && !annotation)) {
@@ -2884,10 +2907,6 @@ function renderAnnotation(item, annotation, loading = false) {
         } catch (error) { showError(error); }
     });
     panel.append(deepen);
-    if (annotation.source_scope?.current_complete === false || annotation.source_scope?.base_complete === false
-        || annotation.source_scope?.limits?.omitted_diff_hunks || annotation.source_scope?.limits?.omitted_related_symbols) {
-        panel.append(el("p", "muted", "Some saved source or related evidence was omitted from this explanation's context. Ask for a deeper walkthrough to retrieve more; omitted code is not missing from the snapshot."));
-    }
     if (annotation.evidence_ids?.length) {
         const citations = el("details", "annotation-citations");
         citations.append(el("summary", "", `Evidence (${annotation.evidence_ids.length})`));
@@ -4135,7 +4154,39 @@ function renderSourceRisk() {
     panel.append(reasons, priority);
 }
 
+function renderReviewContext() {
+    const panel = elements.source_review_context;
+    panel.replaceChildren();
+    panel.classList.toggle("hidden", !state.source);
+    if (!state.source || !state.payload?.model) return;
+    const annotation = state.payload.annotations?.[state.selected?.id];
+    const context = reviewContext(state.payload.model, { path: state.source.path, selected: state.selected,
+        decisionMap: state.payload.decision_map, run: state.payload.test_run, annotation });
+    const section = (title, lines) => {
+        const block = el("section", "review-context-question");
+        block.append(el("h3", "", title));
+        for (const line of lines) block.append(el("p", "", line));
+        panel.append(block);
+        return block;
+    };
+    if (!annotation?.body) section("What changed?", [context.change
+        ? `${context.change.status} file: +${context.change.lines_added || 0} / -${context.change.lines_removed || 0} saved lines. Inspect the diff for behavior.`
+        : "Related saved source, outside the changed-file scope."]);
+    const consumers = context.impact.counts["Potential consumer"];
+    const tests = context.impact.counts["Related test"];
+    const affected = section("Who might be affected?", [consumers || tests
+        ? `${consumers} potential consumer components and ${tests} related test components in the bounded, source-backed Impact view. Static relationships, not runtime proof.`
+        : "No source-backed consumer relationship is established for this selection. That does not establish no impact."]);
+    const impact = el("button", "link-button", "Inspect impact");
+    impact.type = "button";
+    impact.addEventListener("click", () => elements.source_impact.click());
+    affected.append(impact);
+    section("What was verified?", context.verification);
+    section("What remains open?", context.gaps.length ? context.gaps : ["No additional gaps were recorded for this selection; this is not a correctness guarantee."]);
+}
+
 function renderSourceDecisions() {
+    renderReviewContext();
     const panel = elements.source_decisions;
     const map = state.payload?.decision_map;
     const model = state.payload?.model;

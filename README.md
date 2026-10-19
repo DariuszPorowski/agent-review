@@ -66,6 +66,13 @@ Advanced concern inventories, architecture, code paths and dependency exploratio
 remain under **Explore** rather than competing as primary review routes.
 On narrow canvases, **Code** and **Context / Discussion** are focused panes, with
 the change navigator in a keyboard-accessible drawer.
+Context foregrounds the change mechanism, source-backed potential consumers,
+actual verification and open evidence gaps. Static test associations, named-test
+execution and aggregate coverage remain distinct; repository test outcomes alone
+never prove a particular path ran. **Ask about this** is available beside the
+reading-pane controls, and the context/discussion switch stays visible while
+reading. Optional originating-session context is disclosed separately; errors
+remain explicit. **Focus code** also hides the decision footer while reading.
 
 Whole-file review decisions have a clear finish line: **Not reviewed**,
 **Reviewed**, or **Needs follow-up**. **Mark file reviewed & next** records a

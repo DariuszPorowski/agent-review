@@ -200,6 +200,7 @@
             <div class="workspace-reading-tools" role="group" aria-label="Reading pane">
                 <button id="workspace-code" type="button" aria-pressed="true">Code</button>
                 <button id="workspace-context" type="button" aria-pressed="false">Context / Discussion</button>
+                <button id="workspace-discuss" type="button">Ask about this</button>
                 <span id="workspace-group-label" class="muted"></span>
             </div>
             <p id="source-context-notice" class="muted source-context-notice hidden" role="status"></p>
@@ -215,8 +216,12 @@
                         <button id="show-discussion" type="button" aria-pressed="false">Discussion</button>
                     </div>
                     <aside id="item-discussion" class="item-discussion hidden" aria-label="Item discussion"></aside>
-                    <aside id="source-provenance" class="source-provenance hidden" aria-live="polite"></aside>
                     <aside id="source-annotation" class="source-annotation hidden" aria-live="polite"></aside>
+                    <aside id="source-review-context" class="source-review-context hidden" aria-label="Review context"></aside>
+                    <details id="source-origin" class="source-origin">
+                        <summary>Originating context (optional)</summary>
+                        <aside id="source-provenance" class="source-provenance hidden" aria-live="polite"></aside>
+                    </details>
                     <aside id="source-decisions" class="source-decisions hidden" aria-label="Code path changes"></aside>
                 </div>
             </div>

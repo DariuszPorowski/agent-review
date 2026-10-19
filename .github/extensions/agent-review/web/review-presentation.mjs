@@ -1,4 +1,6 @@
-import { pathEvidence } from "./decision-map.mjs";
+import { callablesForSubject, evidenceCounts, pathEvidence } from "./decision-map.mjs";
+import { impactSlice } from "./impact-model.mjs";
+import { countLabel } from "./count-format.mjs";
 
 export function reviewSignal(item) {
     if (item.verification === "supported") return { label: "AI-supported concern", kind: "ai" };
@@ -31,6 +33,41 @@ export function conciseReviewText(value, limit = 240) {
     if (text.length <= limit) return text;
     const end = text.lastIndexOf(" ", limit);
     return `${text.slice(0, end > limit / 2 ? end : limit)}…`;
+}
+
+export function reviewContext(model, { path, selected, decisionMap, run, annotation } = {}) {
+    const subject = model.nodes?.find((node) => node.id === (selected?.node_id || selected?.id) && node.path === path)
+        || { id: `file:${path}`, kind: "file", path };
+    const packageId = selected?.package_id || selected?.id;
+    const seed = model.package_changes?.some((item) => item.id === packageId) ? packageId : subject.id;
+    const impact = impactSlice(model, seed);
+    const callables = callablesForSubject(decisionMap, model, subject);
+    const counts = evidenceCounts({ callables }, run);
+    const coverage = model.coverage?.available && model.coverage.changed_lines?.[path];
+    const verification = [];
+    if (run?.status === "complete") {
+        const outcomes = ["passed", "failed", "error", "skipped"].filter((key) => run.counts?.[key])
+            .map((key) => `${run.counts[key]} ${key}`).join(", ");
+        verification.push(`Repository linked-test run: ${outcomes || "no outcomes recorded"}${run.stale ? " (stale)" : ""}. Run outcomes alone do not prove this path executed.`);
+    } else verification.push(run?.status === "running" ? "Linked tests are running; no completed result yet."
+        : run?.status === "error" ? `Linked-test run failed: ${run.error || "inspect the test output."}`
+        : run?.status === "cancelled" ? "Linked-test run was cancelled." : "No linked-test run is recorded for this review.");
+    if (counts.confirmed) verification.push(`${countLabel(counts.confirmed, "code path")} with named-test execution evidence; inspect outcomes below.`);
+    if (counts.inferred) verification.push(`${countLabel(counts.inferred, "code path")} with static test associations, not execution proof.`);
+    if (coverage?.total > 0) verification.push(`Current-side aggregate coverage: ${coverage.covered}/${coverage.total} changed executable lines. Not named-test or per-path proof.`);
+    const gaps = [];
+    if (counts.untested) gaps.push(`${countLabel(counts.untested, "code path")} without linked-test evidence; inspect the changed conditions.`);
+    if (!callables.length) gaps.push("Per-path test evidence is unavailable for this selection.");
+    if (run?.stale) gaps.push("The recorded test run predates worktree changes; rerun before relying on its results.");
+    if (decisionMap?.status === "error") gaps.push(`Code-path analysis failed: ${decisionMap.error}`);
+    if (model.warnings?.length) gaps.push(`${countLabel(model.warnings.length, "saved analyzer limitation")} in the change overview.`);
+    if (annotation?.source_scope?.current_complete === false || annotation?.source_scope?.base_complete === false
+        || annotation?.source_scope?.limits?.omitted_diff_hunks || annotation?.source_scope?.limits?.omitted_related_symbols) {
+        gaps.push("The AI explanation used bounded excerpts; ask for a deeper walkthrough to retrieve more saved source.");
+    }
+    if (impact.gaps.length) gaps.push(impact.gaps[0]);
+    const change = model.changes?.find((file) => file.path === path);
+    return { change, impact, verification, gaps };
 }
 
 export function annotationSections(markdown) {
