@@ -40,6 +40,12 @@ if (process.env.AGENT_REVIEW_UX_MODEL) {
     state.reviewTarget = { ...await resolveReviewTarget(repo, { mode: worktree ? "worktree" : "commit", ref: state.model.metadata.head_sha }),
         baseRef: state.model.metadata.base_sha };
 } else await state.refresh();
+if (process.env.AGENT_REVIEW_UX_ANNOTATIONS) {
+    const cached = JSON.parse(await readFile(process.env.AGENT_REVIEW_UX_ANNOTATIONS, "utf8"));
+    if (cached.repo !== state.model.metadata.repo_root || cached.base !== state.model.metadata.base_sha
+        || cached.head !== state.model.metadata.head_sha) throw new Error("Saved UX annotations do not match the selected source snapshot.");
+    state.annotations = cached.annotations;
+}
 const server = await startReviewServer(state);
 const info = { url: server.url, repo, pid: process.pid, discussionAvailable: Boolean(client) };
 if (process.env.AGENT_REVIEW_UX_INFO) await writeFile(process.env.AGENT_REVIEW_UX_INFO, JSON.stringify(info));

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openReviewTool } from "./review-details-helper.mjs";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -37,6 +38,7 @@ try {
         const errors = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(`${server.url}?scoutTheme=${theme}`);
+        await openReviewTool(page, "concerns");
         await page.locator("#attention .review-card").first().click();
         const annotation = page.locator("#source-annotation");
         await annotation.locator(".annotation-deepen").waitFor();

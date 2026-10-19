@@ -56,6 +56,17 @@ are a starting point, not a claim that all changed code has been reviewed.
 **Change summary, intent and advanced checks** opens the full narrative,
 metadata, metrics, provenance and custom-check controls when needed.
 
+The **Review** workspace keeps a **Groups / Files** navigation spine beside the
+saved source. Groups use source-backed contracts and consumers; supporting files
+remain explicitly accessible, and the file count includes every changed file.
+**Impact** opens within the same review; **Return to code** restores the source
+side, reading position and item context. **Overview / Review** lets you return
+to the change story without discarding the current reading point.
+Advanced concern inventories, architecture, code paths and dependency exploration
+remain under **Explore** rather than competing as primary review routes.
+On narrow canvases, **Code** and **Context / Discussion** are focused panes, with
+the change navigator in a keyboard-accessible drawer.
+
 A change brief shows file mix, source/test churn, coverage availability, and the
 originating request. Copilot uses bounded, saved implementation and test excerpts
 to explain behavior changes, suggest a review order, and distinguish demonstrated

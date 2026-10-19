@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openReviewTool } from "./review-details-helper.mjs";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -20,7 +21,7 @@ try {
         const errors = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(`${url}?scoutTheme=${theme}`);
-        await page.locator("#sections-view").click();
+        await openReviewTool(page, "groups");
         const sections = page.locator(".review-sections");
         await sections.waitFor();
         assert.match(await sections.textContent(), new RegExp(`${data.represented_files} changed files? represented`));

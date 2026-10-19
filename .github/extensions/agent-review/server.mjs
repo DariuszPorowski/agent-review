@@ -38,6 +38,7 @@ const staticFiles = new Map([
     ["/item-discussion-ui.mjs", "item-discussion-ui.mjs"],
     ["/review-location.mjs", "review-location.mjs"],
     ["/review-presentation.mjs", "review-presentation.mjs"],
+    ["/review-workspace.mjs", "review-workspace.mjs"],
     ["/decision-map.mjs", "decision-map.mjs"],
     ["/count-format.mjs", "count-format.mjs"],
     ["/review-plan.mjs", "review-plan.mjs"],

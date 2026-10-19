@@ -37,13 +37,14 @@ try {
             await page.waitForFunction(() => document.querySelector("#source")?.getAttribute("aria-busy") !== "true"
                 && document.querySelector("#source")?.querySelector(".code-row"));
             await page.locator("#source-close").click();
-            assert.equal(await start.evaluate((button) => button === document.activeElement), true,
-                "Closing source returns to the durable Start/Continue action");
+            assert.equal(await page.evaluate(() => Boolean(document.activeElement.closest("#review-navigation, #review-workflow"))), true,
+                "Closing source returns to visible navigation in the review workspace");
+            await page.locator("#workflow-overview").click();
             await page.locator("#review-background > summary").click();
             assert.equal(await page.locator("#change-brief").isVisible(), true);
             await page.locator("#review-background > summary").click();
             await page.locator("#overview-files").click();
-            await page.locator(".collection-row").first().waitFor();
+            await page.locator("#workspace-files[aria-pressed='true']").waitFor();
             assert.deepEqual(errors, []);
             console.log(`PASS ${theme} ${width}: visible next action, compact defaults, keyboard source/return, full details and all-file access`);
             await page.close();

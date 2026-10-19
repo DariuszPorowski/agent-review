@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openReviewTool } from "./review-details-helper.mjs";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
@@ -41,9 +42,10 @@ try {
             }).observe({ type: "longtask" });
         });
         await page.goto(`${server.url}?scoutTheme=${theme}`);
+        await openReviewTool(page, "concerns");
         const select = async (item) => {
             const card = page.locator(`#attention .review-card[data-item-id="${item.id}"]`);
-            await card.waitFor();
+            await card.waitFor({ state: "attached" });
             const response = page.waitForResponse((response) =>
                 new URL(response.url()).pathname === "/api/source"
                 && new URL(response.url()).searchParams.get("id") === item.id);

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openReviewTool } from "./review-details-helper.mjs";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -38,6 +39,7 @@ try {
         const errors = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(`${server.url}?scoutTheme=${theme}`);
+        await openReviewTool(page, "concerns");
         const ask = page.locator("#attention button[aria-label^='Ask about']").first();
         await ask.waitFor();
         await ask.click();
@@ -74,6 +76,7 @@ try {
         await page.getByRole("button", { name: "Discussion", exact: true }).click();
         assert.ok(await pane.getByText("This deterministic fault-path check uses saved source evidence.").count());
         await page.reload();
+        await openReviewTool(page, "concerns");
         await ask.click();
         await pane.getByText("Answer complete. This thread remains pinned to its saved snapshot.").waitFor();
         assert.ok(await pane.locator(".discussion-user").count());

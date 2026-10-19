@@ -31,6 +31,35 @@
             <button id="refresh" type="button" title="Refresh the selected snapshot and rerun AI summaries, custom checks, and package assessments instead of using saved results">Reanalyze</button>
         </div>
     </header>
+    <nav id="review-workflow" class="review-workflow hidden" aria-label="Review workflow">
+        <button id="workflow-overview" type="button" aria-current="page">Overview</button>
+        <button id="workflow-review" type="button">Review</button>
+        <span id="workspace-target" class="workspace-target"></span>
+        <button id="workspace-find" type="button">Find</button>
+        <button id="workspace-nav-toggle" type="button" aria-expanded="false" aria-controls="review-navigation">Groups / Files</button>
+        <button id="workspace-return-source" class="hidden" type="button">Return to code</button>
+        <details class="workspace-explore">
+            <summary>Explore</summary>
+            <div>
+                <button id="explore-priorities" type="button">Priority queue</button>
+                <button id="explore-concerns" type="button">All concerns</button>
+                <button id="explore-groups" type="button">Grouping details</button>
+                <button id="explore-architecture" type="button">Architecture</button>
+                <button id="explore-paths" type="button">Code paths</button>
+                <button id="explore-packages" type="button">Dependencies</button>
+            </div>
+        </details>
+    </nav>
+    <aside id="review-navigation" class="review-navigation hidden" aria-label="Change navigation">
+        <div class="workspace-nav-tabs" role="group" aria-label="Navigate changes">
+            <button id="workspace-groups" type="button" aria-pressed="true">Groups</button>
+            <button id="workspace-files" type="button" aria-pressed="false">Files</button>
+        </div>
+        <input id="workspace-search" type="search" aria-label="Find a changed file or group" placeholder="Filter changed files…">
+        <p id="workspace-count" class="muted"></p>
+        <button id="workspace-group-retry" class="link-button hidden" type="button">Retry grouping</button>
+        <div id="workspace-nav-list"></div>
+    </aside>
     <main>
         <p id="review-options-status" class="review-options-status" role="status" aria-live="polite"></p>
         <section id="review-picker-notice" class="review-picker-notice hidden" role="status"></section>
@@ -162,6 +191,11 @@
                     <button id="source-focus" type="button" aria-pressed="false" disabled>Focus code</button>
                     <button id="source-location" type="button" disabled title="Copy a local link pinned to this source snapshot and location">Copy location</button>
                 </div>
+            </div>
+            <div class="workspace-reading-tools" role="group" aria-label="Reading pane">
+                <button id="workspace-code" type="button" aria-pressed="true">Code</button>
+                <button id="workspace-context" type="button" aria-pressed="false">Context / Discussion</button>
+                <span id="workspace-group-label" class="muted"></span>
             </div>
             <p id="source-context-notice" class="muted source-context-notice hidden" role="status"></p>
             <section id="source-risk" class="source-risk hidden" aria-label="Review priority"></section>

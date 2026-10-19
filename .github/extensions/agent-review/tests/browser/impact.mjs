@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { openReviewTool } from "./review-details-helper.mjs";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 
@@ -15,6 +16,7 @@ try {
         const errors = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(`${url}?scoutTheme=${theme}`);
+        await openReviewTool(page, "architecture");
         await page.locator("#impact-view").click();
         await page.locator(".impact-graph .node").first().waitFor();
         const direction = page.getByRole("combobox", { name: "Impact relationships" });

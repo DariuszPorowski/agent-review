@@ -12,6 +12,7 @@ import { isReviewSymbol, isTestPath, languageForPath } from "/languages.mjs";
 import { ConnectionFeedback } from "/connection-feedback.mjs";
 import { describeAnalysisWarning } from "/analysis-limitations.mjs";
 import { buildReviewPlan } from "/review-plan.mjs";
+import { fileTree, groupForSource, workspaceNavigation } from "/review-workspace.mjs";
 import { countLabel, plural } from "/count-format.mjs";
 import {
     REVIEW_DISPOSITIONS, isReviewComplete, nextReviewItem, parseReviewLedger, reviewProgress,
@@ -48,10 +49,19 @@ const state = {
     closedFindingKeys: new Set(),
     reviewLedger: new Map(),
     customOpenKeys: new Set(),
+    reviewPage: "overview",
+    navigationMode: "groups",
+    navigationQuery: "",
+    readingPane: "code",
+    exploring: false,
 };
 const elements = Object.fromEntries([
     "review-target-form", "review-mode", "review-ref", "review-target-label", "repository-identity", "review-list-refresh", "review-more", "review-options-status", "review-picker-notice", "clean-review", "change-brief",
     "review-overview", "review-background", "overview-title", "overview-description", "overview-progress", "overview-scope", "overview-start", "overview-files",
+    "review-workflow", "workflow-overview", "workflow-review", "workspace-target", "workspace-find", "workspace-nav-toggle",
+    "workspace-return-source", "review-navigation", "workspace-groups", "workspace-files", "workspace-search", "workspace-count",
+    "workspace-nav-list", "workspace-code", "workspace-context", "workspace-group-label", "workspace-group-retry",
+    "explore-priorities", "explore-concerns", "explore-groups", "explore-architecture", "explore-paths", "explore-packages",
     "status", "refresh", "cancel-analysis", "analysis-cancelled", "source-context-notice", "connection-notice", "reconnect", "worktree-notice", "worktree-notice-text", "worktree-reanalyze", "error", "analysis-progress", "progress-phase", "progress-message", "progress-percent",
     "progress-bar", "summary", "breadcrumbs", "attention", "attention-count", "packages", "rail-resize", "impact-view", "source-impact",
     "show-evidence", "show-discussion", "item-discussion", "sections-view", "source-section",
@@ -70,6 +80,7 @@ const connectionFeedback = new ConnectionFeedback({
         state.connectionLost = phase !== "connected";
         renderConnectionNotice();
         renderReviewOverview();
+        renderWorkspaceShell();
     },
 });
 const discussionPane = new ItemDiscussionPane(elements.item_discussion, {
@@ -81,6 +92,243 @@ const discussionPane = new ItemDiscussionPane(elements.item_discussion, {
         { path: citation.path, lines: [citation.line], side: citation.side }),
 });
 
+function renderWorkspaceShell() {
+    const ready = Boolean(state.payload?.model && !state.reviewPickerPending && !state.reviewSubmitting);
+    const reviewing = ready && state.reviewPage === "review";
+    elements.review_workflow.classList.toggle("hidden", !ready);
+    document.body.classList.toggle("reviewing", reviewing);
+    document.body.classList.toggle("reading-source", reviewing && !elements.source_panel.classList.contains("hidden"));
+    document.body.classList.toggle("workspace-exploring", Boolean(state.exploring));
+    document.body.dataset.readingPane = state.readingPane;
+    elements.workflow_overview.setAttribute("aria-current", reviewing ? "false" : "page");
+    elements.workflow_review.setAttribute("aria-current", reviewing ? "page" : "false");
+    elements.workflow_review.disabled = !ready || isEmptyReview(state.payload);
+    const meta = state.payload?.model?.metadata;
+    elements.workspace_target.textContent = meta ? `${meta.repo_root?.split(/[\\/]/).at(-1) || "Repository"} · ${
+        state.payload.review_target?.label || "Saved target"} · Base ${meta.base_sha?.slice(0, 8) || "empty"}` : "";
+    elements.workspace_target.title = meta?.repo_root || "";
+    const narrow = matchMedia("(max-width: 900px)").matches;
+    const drawer = reviewing && narrow && state.navigationOpen;
+    elements.review_navigation.classList.toggle("hidden", !reviewing || Boolean(state.sourceFocused) || (narrow && !drawer));
+    elements.workspace_nav_toggle.setAttribute("aria-expanded", String(Boolean(drawer)));
+    elements.source_panel.inert = Boolean(drawer);
+    document.querySelector(".workspace").inert = Boolean(drawer);
+    for (const notice of [elements.error, elements.connection_notice, elements.worktree_notice]) notice.inert = Boolean(drawer);
+    elements.workspace_return_source.classList.toggle("hidden", !reviewing || !state.workspaceReturn
+        || !elements.source_panel.classList.contains("hidden"));
+    elements.workspace_code.setAttribute("aria-pressed", String(state.readingPane === "code"));
+    elements.workspace_context.setAttribute("aria-pressed", String(state.readingPane !== "code"));
+    if (ready) {
+        const height = Math.ceil(elements.review_workflow.getBoundingClientRect().height);
+        document.documentElement.style.setProperty("--workflow-height", `${height}px`);
+        let top = height;
+        if (reviewing) for (const notice of [elements.error, elements.connection_notice, elements.worktree_notice]) {
+            if (notice.classList.contains("hidden")) continue;
+            notice.style.top = `${top}px`;
+            top += Math.ceil(notice.getBoundingClientRect().height) + 6;
+        }
+        document.documentElement.style.setProperty("--workspace-top", `${top}px`);
+    }
+}
+function rememberWorkspaceSource() {
+    if (!state.source || elements.source_panel.classList.contains("hidden")) return;
+    state.workspaceReturn = {
+        generation: state.payload.review_generation, source: state.source, selected: state.selected, tab: state.sourceTab,
+        history: { ...state.sourceHistory, entries: [...state.sourceHistory.entries] },
+        attribution: state.attribution, attributionStatus: state.attributionStatus, attributionMessage: state.attributionMessage,
+        scroll: { top: elements.source.scrollTop, left: elements.source.scrollLeft,
+            side: elements.source_panel.querySelector(".source-side").scrollTop },
+        discussion: state.discussionMode, pane: state.readingPane, group: state.activeReviewGroup, query: state.navigationQuery,
+    };
+}
+
+async function returnWorkspaceSource() {
+    const saved = state.workspaceReturn;
+    if (!saved || saved.generation !== state.payload.review_generation) {
+        showError(new Error("The previous source belongs to another review snapshot."));
+        return;
+    }
+    state.reviewPage = "review";
+    state.exploring = false;
+    state.mode = "walkthrough";
+    state.source = saved.source;
+    state.selected = saved.selected;
+    state.sourceTab = saved.tab;
+    state.sourceHistory = { ...saved.history, entries: [...saved.history.entries] };
+    state.attribution = saved.attribution;
+    state.attributionStatus = saved.attributionStatus;
+    state.attributionMessage = saved.attributionMessage;
+    state.activeReviewGroup = saved.group;
+    state.readingPane = saved.pane || "code";
+    state.navigationQuery = saved.query;
+    elements.workspace_search.value = saved.query || "";
+    state.selectionEpoch++;
+    setDiscussionMode(Boolean(saved.discussion));
+    render();
+    if (await renderSource()) {
+        elements.source.scrollTop = saved.scroll.top;
+        elements.source.scrollLeft = saved.scroll.left;
+        elements.source_panel.querySelector(".source-side").scrollTop = saved.scroll.side;
+        if (saved.discussion && saved.selected) await discussionPane.open(saved.selected, state.payload.review_generation);
+        elements.source.focus({ preventScroll: true });
+    }
+}
+
+elements.workflow_overview.addEventListener("click", () => {
+    rememberWorkspaceSource();
+    setSourceFocus(false);
+    state.reviewPage = "overview";
+    state.navigationOpen = false;
+    elements.source_panel.classList.add("hidden");
+    renderWorkspaceShell();
+    elements.overview_start.focus({ preventScroll: true });
+});
+elements.workflow_review.addEventListener("click", () => {
+    if (state.reviewPage === "review" && !state.exploring) return;
+    if (state.workspaceReturn) returnWorkspaceSource().catch(showError);
+    else elements.overview_start.click();
+});
+elements.workspace_return_source.addEventListener("click", () => returnWorkspaceSource().catch(showError));
+elements.workspace_find.addEventListener("click", openReviewCommands);
+elements.workspace_nav_toggle.addEventListener("click", () => {
+    state.navigationOpen = !state.navigationOpen;
+    renderWorkspaceShell();
+    if (state.navigationOpen) elements.workspace_search.focus();
+});
+for (const [button, mode] of [[elements.workspace_groups, "groups"], [elements.workspace_files, "files"]]) {
+    button.addEventListener("click", () => { state.navigationMode = mode; state.navigationKey = null; renderWorkspaceNavigation(); });
+}
+elements.workspace_search.addEventListener("input", () => {
+    state.navigationQuery = elements.workspace_search.value;
+    renderWorkspaceNavigation();
+});
+elements.workspace_group_retry.addEventListener("click", () => {
+    state.sectionError = null;
+    state.navigationKey = null;
+    renderWorkspaceNavigation();
+});
+document.querySelector(".workspace-explore").addEventListener("toggle", (event) => {
+    if (event.target.open && state.navigationOpen) {
+        state.navigationOpen = false;
+        renderWorkspaceShell();
+    }
+});
+for (const [button, mode] of [[elements.explore_priorities, "walkthrough"], [elements.explore_concerns, "findings"], [elements.explore_groups, "sections"], [elements.explore_architecture, "graph"],
+    [elements.explore_paths, "decisions"], [elements.explore_packages, "packages"]]) {
+    button.addEventListener("click", () => {
+        rememberWorkspaceSource();
+        setSourceFocus(false);
+        state.reviewPage = "review";
+        state.exploring = true;
+        state.mode = mode;
+        state.stack = [];
+        state.source = null;
+        elements.source_panel.classList.add("hidden");
+        button.closest("details").open = false;
+        render();
+    });
+}
+for (const [button, pane] of [[elements.workspace_code, "code"], [elements.workspace_context, "context"]]) {
+    button.addEventListener("click", () => { state.readingPane = pane; renderWorkspaceShell(); });
+}
+
+function renderWorkspaceNavigation() {
+    if (!state.payload?.model || state.reviewPage !== "review") return;
+    const data = ensureSectionData();
+    const navigation = workspaceNavigation(state.payload.model, data);
+    state.workspaceNavigation = navigation;
+    const location = state.source || state.workspaceReturn?.source;
+    const group = groupForSource(navigation, location, state.activeReviewGroup);
+    if (group) state.activeReviewGroup = group.id;
+    elements.workspace_group_label.textContent = group?.title
+        || (state.source ? "Related source outside the changed-file groups" : "Choose a group or file");
+    const query = state.navigationQuery.toLowerCase().trim();
+    const key = `${state.payload.review_generation}:${state.sectionDataKey}:${state.navigationMode}:${query}`;
+    elements.workspace_groups.setAttribute("aria-pressed", String(state.navigationMode === "groups"));
+    elements.workspace_files.setAttribute("aria-pressed", String(state.navigationMode === "files"));
+    elements.workspace_count.textContent = `${countLabel(navigation.files.length, "changed file")} · ${
+        data ? countLabel(navigation.groups.length, "review group") : state.sectionError ? "Grouping unavailable; files remain accessible" : "Grouping saved changes…"}`;
+    elements.workspace_group_retry.classList.toggle("hidden", !state.sectionError);
+    if (state.navigationKey !== key) {
+        state.navigationKey = key;
+        const list = elements.workspace_nav_list;
+        list.replaceChildren();
+        const appendTree = (container, tree, owner) => {
+            for (const directory of [...tree.directories.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+                const details = el("details", "workspace-folder");
+                details.dataset.prefix = directory.path;
+                details.append(el("summary", "", directory.name));
+                appendTree(details, directory, owner);
+                if (query) details.open = true;
+                container.append(details);
+            }
+            for (const file of tree.files) {
+                const button = el("button", "workspace-file", file.path.split("/").at(-1));
+                button.type = "button";
+                button.dataset.path = file.path;
+                button.dataset.group = owner?.id || "";
+                button.title = file.path;
+                button.addEventListener("click", () => openWorkspaceFile(file, owner).catch(showError));
+                container.append(button);
+            }
+        };
+        if (state.navigationMode === "files") {
+            appendTree(list, fileTree(navigation.files.filter((file) => !query || file.path.toLowerCase().includes(query))), null);
+        } else for (const entry of navigation.groups) {
+            const matches = !query || entry.title.toLowerCase().includes(query);
+            const files = entry.files.filter((file) => matches || file.path.toLowerCase().includes(query));
+            if (!files.length) continue;
+            const details = el("details", "workspace-group");
+            details.dataset.group = entry.id;
+            const summary = el("summary", "");
+            const open = el("button", "", entry.title);
+            open.type = "button";
+            open.title = entry.section?.summary || entry.title;
+            open.addEventListener("click", (event) => {
+                event.preventDefault();
+                details.open = true;
+                const first = entry.section?.ranges.find((range) => files.some((file) => file.path === range.path));
+                const file = files.find((file) => file.path === first?.path) || files[0];
+                openWorkspaceFile(file, entry).catch(showError);
+            });
+            summary.append(open, el("span", "muted", String(files.length)));
+            details.append(summary);
+            appendTree(details, fileTree(files), entry);
+            if (query) details.open = true;
+            list.append(details);
+        }
+        if (!list.childElementCount) list.append(el("p", "muted", "No changed files match this filter."));
+    }
+    for (const button of elements.workspace_nav_list.querySelectorAll(".workspace-file")) {
+        const selected = button.dataset.path === location?.path
+            && (state.navigationMode === "files" || button.dataset.group === state.activeReviewGroup);
+        button.classList.toggle("is-selected", selected);
+        if (selected) {
+            button.setAttribute("aria-current", "location");
+            for (let parent = button.parentElement; parent && parent !== elements.workspace_nav_list; parent = parent.parentElement) {
+                if (parent.tagName === "DETAILS") parent.open = true;
+            }
+        } else button.removeAttribute("aria-current");
+    }
+}
+
+async function openWorkspaceFile(file, group = null) {
+    state.reviewPage = "review";
+    state.exploring = false;
+    state.readingPane = "code";
+    state.navigationOpen = false;
+    state.activeReviewGroup = group?.id || null;
+    state.navigationCursor = { path: file.path, group: group?.id || null };
+    state.mode = "walkthrough";
+    const range = group?.section?.ranges.find((range) => range.path === file.path && range.side !== "base")
+        || group?.section?.ranges.find((range) => range.path === file.path);
+    const node = range?.symbol_id && state.payload.model.nodes.find((node) => node.id === range.symbol_id);
+    if (node) await selectItem(node, false);
+    else await selectFile(file, false);
+    renderWorkspaceShell();
+    if (state.source) elements.source.focus({ preventScroll: true });
+}
+
 function setDiscussionMode(active) {
     state.discussionMode = active;
     elements.source_panel.querySelector(".source-side").classList.toggle("discussion-mode", active);
@@ -90,6 +338,8 @@ function setDiscussionMode(active) {
         discussionPane.hide();
         elements.source_panel.querySelector(".source-side").scrollTop = 0;
     }
+    if (active) state.readingPane = "context";
+    renderWorkspaceShell();
 }
 
 function renderSectionEvidence() {
@@ -123,6 +373,8 @@ function setSourceFocus(active) {
     document.body.classList.toggle("review-source-focus", active);
     elements.source_focus.setAttribute("aria-pressed", String(active));
     elements.source_focus.textContent = active ? "Exit focus" : "Focus code";
+    if (active) state.readingPane = "code";
+    renderWorkspaceShell();
 }
 
 elements.source_focus.addEventListener("click", () => setSourceFocus(!state.sourceFocused));
@@ -131,6 +383,8 @@ const commandCatalogs = new WeakMap();
 function focusedReviewItem() {
     if (!state.payload?.model) return null;
     const active = document.activeElement;
+    const changedFile = active.closest?.(".workspace-file")?.dataset.path;
+    if (changedFile) return { id: `file:${changedFile}`, kind: "file", path: changedFile, name: changedFile };
     const sectionId = active.closest?.(".section-card")?.dataset.sectionId;
     const section = state.sectionData?.sections.find((section) => section.id === sectionId);
     if (section) return { id: section.id, kind: "section", title: section.title, path: section.ranges[0].path };
@@ -212,7 +466,8 @@ function openReviewCommands() {
         showError(new Error("Wait for the saved review to load before searching it."));
         return;
     }
-    state.commandReturnFocus = document.activeElement === document.body ? elements.review_command_open : document.activeElement;
+    state.commandReturnFocus = document.activeElement === document.body
+        ? state.reviewPage === "review" ? elements.workspace_find : elements.review_command_open : document.activeElement;
     elements.review_command_query.value = "";
     renderReviewCommands();
     if (!elements.review_command_palette.open) elements.review_command_palette.showModal();
@@ -306,6 +561,7 @@ window.addEventListener("hashchange", () => {
 });
 
 async function discussItem(item = state.selected) {
+    state.reviewPage = "review";
     setSourceFocus(false);
     rememberSourceReturnFocus();
     if (!item?.id) {
@@ -330,9 +586,13 @@ async function discussItem(item = state.selected) {
             panel.classList.add("hidden");
         }
         elements.source_panel.classList.remove("hidden");
+        renderWorkspaceNavigation();
+        renderWorkspaceShell();
     }
     viewedSourceLocation();
     setDiscussionMode(true);
+    renderWorkspaceNavigation();
+    renderWorkspaceShell();
     await discussionPane.open({ ...item, title }, state.payload?.review_generation);
 }
 
@@ -440,6 +700,9 @@ function metric(label, value, detail, mode) {
     card.type = "button";
     card.append(el("strong", "", value ?? 0), el("span", "", label), el("small", "", detail));
     card.addEventListener("click", () => {
+        rememberWorkspaceSource();
+        state.reviewPage = "review";
+        state.exploring = true;
         state.mode = mode;
         state.stack = [];
         clearSelection();
@@ -475,6 +738,9 @@ function deltaMetric(label, added, removed, detail, mode, modified = null) {
     card.type = "button";
     card.append(value, el("span", "", label), el("small", "", detail));
     card.addEventListener("click", () => {
+        rememberWorkspaceSource();
+        state.reviewPage = "review";
+        state.exploring = true;
         state.mode = mode;
         state.stack = [];
         clearSelection();
@@ -757,6 +1023,10 @@ function markSelectedCards() {
 }
 
 function openImpact(item = state.selected) {
+    rememberWorkspaceSource();
+    setSourceFocus(false);
+    state.reviewPage = "review";
+    state.exploring = true;
     setDiscussionMode(false);
     const model = state.payload?.model;
     if (!model) {
@@ -859,6 +1129,10 @@ elements.impact_view.addEventListener("click", () => {
     else openImpact();
 });
 elements.source_impact.addEventListener("click", () => {
+    if (state.selected?.id?.startsWith("package:") || state.selected?.package_id) {
+        openImpact(state.selected);
+        return;
+    }
     const source = state.source;
     const symbol = state.payload?.model?.nodes.filter((node) => node.path === source?.path
         && node.start_line <= source.start_line && node.end_line >= source.start_line
@@ -870,6 +1144,17 @@ elements.source_impact.addEventListener("click", () => {
 function openSections(location = null) {
     if (!state.payload?.model) {
         showError(new Error("Wait for the saved review to load before opening sections."));
+        return;
+    }
+    if (state.reviewPage === "review" && !state.exploring) {
+        state.navigationMode = "groups";
+        state.navigationKey = null;
+        state.navigationOpen = true;
+        renderWorkspaceNavigation();
+        renderWorkspaceShell();
+        const current = [...elements.workspace_nav_list.querySelectorAll(".workspace-group")]
+            .find((group) => group.dataset.group === state.activeReviewGroup);
+        current?.querySelector("button")?.focus({ preventScroll: true });
         return;
     }
     state.sectionFocus = location;
@@ -897,13 +1182,10 @@ function sectionSourceButton(section, range, label = null) {
     return button;
 }
 
-function renderSections(model) {
+function ensureSectionData() {
     const key = `${state.payload.review_generation}:${state.payload.rule_check?.completed_at || ""}`;
-    elements.graph.replaceChildren();
-    if (state.payload.loading) {
-        elements.graph.append(el("p", "muted", "Reanalyzing the saved target. Sections will refresh when analysis finishes."));
-        return;
-    }
+    if (state.sectionDataKey === key) return state.sectionData;
+    if (state.payload.loading) return null;
     if (state.sectionDataKey !== key) {
         if (state.sectionLoadingKey !== key && state.sectionError?.key !== key) {
             state.sectionLoadingKey = key;
@@ -912,14 +1194,23 @@ function renderSections(model) {
                 state.sectionData = data;
                 state.sectionDataKey = key;
                 state.sectionLoadingKey = null;
-                if (state.mode === "sections") render();
+                if (state.mode === "sections" || state.reviewPage === "review") render();
             }, (error) => {
                 if (state.sectionLoadingKey !== key) return;
                 state.sectionError = { key, message: error.message };
                 state.sectionLoadingKey = null;
-                if (state.mode === "sections") render();
+                if (state.mode === "sections" || state.reviewPage === "review") render();
             });
         }
+    }
+    return null;
+}
+
+function renderSections(model) {
+    const key = `${state.payload.review_generation}:${state.payload.rule_check?.completed_at || ""}`;
+    elements.graph.replaceChildren();
+    const data = ensureSectionData();
+    if (!data) {
         if (state.sectionError?.key === key) {
             const retry = el("button", "", "Retry sections");
             retry.type = "button";
@@ -928,7 +1219,6 @@ function renderSections(model) {
         } else elements.graph.append(el("p", "muted", "Building source-derived review sections…"));
         return;
     }
-    const data = state.sectionData;
     const behavior = data.sections.filter((section) => section.kind === "behavior");
     const supporting = data.sections.filter((section) => section.kind !== "behavior");
     const reviewed = behavior.filter((section) => state.reviewLedger.get(section.id)?.disposition === "reviewed").length;
@@ -1363,6 +1653,13 @@ function renderReviewOverview() {
 }
 
 function browseReviewFiles() {
+    rememberWorkspaceSource();
+    state.source = null;
+    elements.source_panel.classList.add("hidden");
+    state.reviewPage = "review";
+    state.navigationMode = "files";
+    state.navigationOpen = matchMedia("(max-width: 900px)").matches;
+    state.exploring = false;
     state.mode = "files";
     state.stack = [];
     state.query = "";
@@ -1750,6 +2047,7 @@ async function loadSource(query, epoch, preferredTab = null, nav = "reset", extr
     const attribution = await fetchAttribution(source.path, epoch);
     if (epoch !== state.selectionEpoch) return false;
     state.source = { ...source, ...extras };
+    state.readingPane = "code";
     state.attribution = attribution;
     state.sourceTab = source.declaration_highlight?.side === "base" ? "base"
         : preferredTab || (source.diff ? "diff" : "current");
@@ -2673,6 +2971,8 @@ async function cachedSourceRows(source, tab, isCurrent) {
 
 async function renderSource({ preserveScroll = false } = {}) {
     if (!state.source) return;
+    state.reviewPage = "review";
+    if (!state.readingPane) state.readingPane = "code";
     elements.source_panel.classList.remove("no-source");
     const source = state.source;
     const tab = state.sourceTab;
@@ -2680,6 +2980,9 @@ async function renderSource({ preserveScroll = false } = {}) {
     const isCurrent = () => version === sourceRenderVersion && state.source === source && state.sourceTab === tab;
     const previousScroll = { top: elements.source.scrollTop, left: elements.source.scrollLeft };
     elements.source_panel.classList.remove("hidden");
+    renderWorkspaceNavigation();
+    state.navigationCursor = { path: source.path, group: state.activeReviewGroup || null };
+    renderWorkspaceShell();
     elements.source_title.textContent = `${state.source.path}${state.source.start_line ? `:${state.source.start_line}` : ""}`;
     elements.source_section.classList.toggle("hidden", !(state.payload?.model?.changes || [])
         .some((change) => change.path === state.source.path && change.status !== "unchanged"));
@@ -4241,6 +4544,7 @@ function render() {
         elements.analysis_progress.querySelector(".progress-track").setAttribute("aria-valuenow", String(percent));
     }
     renderReviewPickerNotice();
+    renderWorkspaceShell();
     renderConnectionNotice();
     renderCustomAnalyses();
     const clean = !state.reviewPickerPending && !state.reviewSubmitting && isEmptyReview(payload);
@@ -4312,7 +4616,24 @@ function render() {
     elements.impact_view.textContent = state.mode === "impact" ? "Structure" : "Impact";
     elements.sections_view.setAttribute("aria-pressed", String(state.mode === "sections"));
     elements.sections_view.textContent = state.mode === "sections" ? "Review plan" : "Sections";
-    if (state.mode === "sections") {
+    renderWorkspaceNavigation();
+    renderWorkspaceShell();
+    if (state.reviewPage === "review" && state.exploring && state.mode === "findings") {
+        elements.level_label.textContent = "CONCERNS";
+        elements.graph_title.textContent = "All review concerns";
+        elements.graph.replaceChildren(elements.attention);
+    } else if (state.reviewPage === "review" && !state.exploring && !state.source) {
+        elements.graph.replaceChildren(el("div", "workspace-empty"));
+        const empty = elements.graph.firstChild;
+        empty.append(el("h2", "", "Choose a group or file to continue"),
+            el("p", "muted", "Changed code stays in the center; context and discussion stay beside it. Impact is available without leaving this review."));
+        if (state.workspaceReturn) {
+            const reopen = el("button", "review-next", "Return to code");
+            reopen.type = "button";
+            reopen.addEventListener("click", () => returnWorkspaceSource().catch(showError));
+            empty.append(reopen);
+        }
+    } else if (state.mode === "sections") {
         elements.level_label.textContent = "GROUPED REVIEW";
         elements.graph_title.textContent = "Source-backed review sections";
         renderSections(model);
@@ -4398,6 +4719,7 @@ function showError(error) {
     }
     elements.error.textContent = error.message;
     elements.error.classList.remove("hidden");
+    renderWorkspaceShell();
 }
 
 async function reanalyze() {
@@ -4447,6 +4769,14 @@ elements.review_search.addEventListener("input", () => {
     render();
 });
 window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.navigationOpen && matchMedia("(max-width: 900px)").matches
+        && !document.querySelector("dialog[open]")) {
+        event.preventDefault();
+        state.navigationOpen = false;
+        renderWorkspaceShell();
+        elements.workspace_nav_toggle.focus({ preventScroll: true });
+        return;
+    }
     if (document.querySelector("dialog[open]")) return;
     if (event.key === "Escape" && state.sourceFocused) {
         event.preventDefault();
@@ -4479,11 +4809,24 @@ window.addEventListener("keydown", (event) => {
         return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    const inReview = document.activeElement.closest?.(".workspace, #source-panel");
+    const inReview = state.reviewPage === "review" && (document.activeElement === document.body
+        || document.activeElement.closest?.(".workspace, #source-panel, #review-navigation, #review-workflow"));
     if (!inReview) return;
     const key = event.key.toLowerCase();
     if (key === "j" || key === "k") {
         event.preventDefault();
+        if (state.reviewPage === "review" && !state.exploring && state.workspaceNavigation) {
+            const sequence = state.navigationMode === "groups"
+                ? state.workspaceNavigation.groups.flatMap((group) => group.files.map((file) => ({ file, group })))
+                : state.workspaceNavigation.files.map((file) => ({ file, group: null }));
+            const cursor = state.navigationCursor || { path: (state.source || state.workspaceReturn?.source)?.path, group: state.activeReviewGroup };
+            let current = sequence.findIndex((entry) => entry.file.path === cursor.path
+                && (!entry.group || entry.group.id === cursor.group));
+            if (current < 0) current = key === "j" ? -1 : 0;
+            const next = sequence[(current + (key === "j" ? 1 : sequence.length - 1) + sequence.length) % sequence.length];
+            if (next) openWorkspaceFile(next.file, next.group).catch(showError);
+            return;
+        }
         if (state.mode === "sections" && elements.source_panel.classList.contains("hidden")) {
             const summaries = [...elements.graph.querySelectorAll(".section-card > summary")];
             const current = summaries.indexOf(document.activeElement.closest("summary"));
@@ -4526,7 +4869,10 @@ function detectHostResize() {
     if (document.hidden || resizeFrame !== null) return;
     resizeFrame = requestAnimationFrame(() => {
         resizeFrame = null;
-        if (!document.hidden) resizeGraph(elements.graph);
+        if (!document.hidden) {
+            renderWorkspaceShell();
+            resizeGraph(elements.graph);
+        }
     });
 }
 window.addEventListener("resize", detectHostResize);
@@ -4573,6 +4919,7 @@ elements.rail_resize.addEventListener("keydown", (event) => {
     setRailWidth(current + (event.key === "ArrowRight" ? 20 : -20));
 });
 elements.source_close.addEventListener("click", () => {
+    rememberWorkspaceSource();
     setSourceFocus(false);
     setDiscussionMode(false);
     const fileSelection = state.selected?.kind === "file";
@@ -4585,6 +4932,17 @@ elements.source_close.addEventListener("click", () => {
     if (fileSelection) {
         clearSelection();
         setDetailVisible(false);
+    }
+    renderWorkspaceShell();
+    if (state.reviewPage === "review" && !state.exploring) {
+        state.navigationOpen = matchMedia("(max-width: 900px)").matches;
+        renderWorkspaceNavigation();
+        renderWorkspaceShell();
+        const file = [...elements.workspace_nav_list.querySelectorAll(".workspace-file")]
+            .find((button) => button.getAttribute("aria-current") === "location");
+        (file || elements.workspace_find).focus({ preventScroll: true });
+        render();
+        return;
     }
     if (state.mode === "impact") {
         if (state.sourceReturnFocus?.isConnected) {
@@ -4637,6 +4995,17 @@ function updateReviewApply() {
 
 function resetReviewNavigation() {
     elements.review_background.open = false;
+    state.reviewPage = "overview";
+    state.navigationMode = "groups";
+    state.navigationQuery = "";
+    state.navigationKey = null;
+    state.navigationCursor = null;
+    state.navigationOpen = false;
+    state.activeReviewGroup = null;
+    state.workspaceReturn = null;
+    state.exploring = false;
+    state.readingPane = "code";
+    elements.workspace_search.value = "";
     setSourceFocus(false);
     state.appliedReviewLocation = null;
     setDiscussionMode(false);
