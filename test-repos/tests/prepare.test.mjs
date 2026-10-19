@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -13,7 +13,8 @@ const fixtures = fileURLToPath(new URL("../", import.meta.url));
 const nodeEnv = { ...process.env };
 delete nodeEnv.NODE_TEST_CONTEXT;
 async function workspace(t) {
-    const root = await mkdtemp(join(tmpdir(), "agent-review-samples-"));
+    // Windows runners can report 8.3 short temp paths; Git reports the canonical long path.
+    const root = await realpath(await mkdtemp(join(tmpdir(), "agent-review-samples-")));
     t.after(() => rm(root, { recursive: true, force: true }));
     return root;
 }
